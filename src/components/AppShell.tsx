@@ -120,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {items.map((item) => (
                     <Link
                       key={item.to}
-                      to={item.to}
+                      to={item.to as never}
                       onClick={() => setOpen(false)}
                       className={cn(
                         "block rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent",
