@@ -46,6 +46,69 @@ function FinancePage() {
       .sort((a, b) => b.inv.issued_at.localeCompare(a.inv.issued_at));
   }, [db, q, filter]);
 
+  // ✅ دالة طباعة الإيصال
+  function printReceipt(payment: Payment) {
+    const student = db?.students.find((s) => s.id === payment.student_id);
+    const settings = db?.settings;
+    if (!settings) return;
+
+    const paperSize = settings.receipt_paper_size || "A5";
+    const maxWidth = paperSize === "A4" ? "210mm" : "148mm";
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>إيصال قبض</title>
+        <style>
+          body { font-family: 'Cairo', 'Arial', sans-serif; margin: 20px; direction: rtl; background: #fff; }
+          .receipt { max-width: ${maxWidth}; margin: auto; border: 1px solid #ccc; padding: 20px; border-radius: 8px; background: #fff; }
+          .header { text-align: center; border-bottom: 2px solid #1a4a4a; padding-bottom: 10px; margin-bottom: 15px; }
+          .logo { max-height: 80px; margin-bottom: 8px; }
+          .title { font-size: 22px; font-weight: bold; color: #1a4a4a; }
+          .subtitle { font-size: 14px; color: #555; }
+          .details { margin: 15px 0; }
+          .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee; }
+          .total { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: left; }
+          .footer { margin-top: 20px; text-align: center; font-size: 12px; color: #888; border-top: 1px solid #ccc; padding-top: 10px; }
+          .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 80px; color: rgba(0,0,0,0.05); pointer-events: none; z-index: -1; }
+          @media print { body { margin: 0; padding: 10px; } .receipt { border: none; box-shadow: none; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="header">
+            ${settings.receipt_show_logo !== false && settings.logo_data_url ? `<img src="${settings.logo_data_url}" class="logo" />` : ""}
+            <div class="title">${settings.institute_name}</div>
+            <div class="subtitle">${settings.address || ""}</div>
+            <div class="subtitle">${settings.phone || ""}</div>
+            <div style="margin-top:5px; font-size:16px; font-weight:bold;">إيصال قبض</div>
+          </div>
+          <div class="details">
+            <div class="row"><span>رقم الإيصال:</span><span>${payment.receipt_no}</span></div>
+            <div class="row"><span>التاريخ:</span><span>${dateStr(payment.paid_at)}</span></div>
+            <div class="row"><span>الطالب:</span><span>${student?.full_name || "—"}</span></div>
+            ${settings.receipt_show_guardian !== false && student?.guardian_name ? `<div class="row"><span>ولي الأمر:</span><span>${student.guardian_name}</span></div>` : ""}
+            <div class="row"><span>المبلغ:</span><span>${money(payment.amount, settings.currency)}</span></div>
+            ${settings.receipt_show_payment_method !== false ? `<div class="row"><span>طريقة الدفع:</span><span>${payment.method === "cash" ? "نقدًا" : payment.method === "bank" ? "بنك" : "أخرى"}</span></div>` : ""}
+            ${settings.receipt_show_notes !== false && payment.note ? `<div class="row"><span>ملاحظات:</span><span>${payment.note}</span></div>` : ""}
+          </div>
+          <div class="total">المجموع: ${money(payment.amount, settings.currency)}</div>
+          <div class="footer">${settings.receipt_footer_text || "شكراً لثقتكم بنا"}</div>
+        </div>
+        <script>
+          setTimeout(() => { window.print(); }, 500);
+        <\/script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
   if (!db) return null;
   if (!allowed("finance.view")) return <Denied />;
   const canPay = allowed("finance.pay") || allowed("finance.create");
@@ -147,11 +210,20 @@ function FinancePage() {
               <Td>{dateStr(p.paid_at)}</Td>
               <Td>{p.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
               <Td>
-                {!p.is_void && canPay ? (
-                  <Button variant="ghost" onClick={() => setVoidFor(p.id)}>
-                    إلغاء
-                  </Button>
-                ) : null}
+                <div className="flex gap-1">
+                  {!p.is_void && (
+                    <>
+                      <Button variant="ghost" onClick={() => printReceipt(p)}>
+                        🖨️
+                      </Button>
+                      {canPay && (
+                        <Button variant="ghost" onClick={() => setVoidFor(p.id)}>
+                          إلغاء
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
               </Td>
             </tr>
           ))}
