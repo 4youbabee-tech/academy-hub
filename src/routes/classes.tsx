@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
-import { insert, update } from "@/lib/db";
+import { insert, update, transact, audit, baseFields } from "@/lib/db";
 import { createEnrollmentWithInvoice } from "@/lib/finance";
 import { dateStr, fromMinor, money, today, toMinor, WEEKDAYS } from "@/lib/format";
 import type { Klass } from "@/lib/types";
@@ -40,7 +40,14 @@ function ClassesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [enrollFor, setEnrollFor] = useState<Klass | null>(null);
-  const [enrollForm, setEnrollForm] = useState({ student_id: "", price: "0", discount: "0", reason: "", count: "1" });
+  const [enrollForm, setEnrollForm] = useState({
+    student_id: "",
+    price: "0",
+    discount: "0",
+    registration_fee: "0", // ✅ جديد: رسوم التسجيل
+    reason: "",
+    count: "1",
+  });
   const [enrollError, setEnrollError] = useState<string | null>(null);
 
   const counts = useMemo(() => {
@@ -116,6 +123,7 @@ function ClassesPage() {
       student_id: "",
       price: fromMinor(course?.default_price ?? 0),
       discount: "0",
+      registration_fee: "0", // ✅ جديد
       reason: "",
       count: "1",
     });
@@ -132,9 +140,12 @@ function ClassesPage() {
     const used = counts.get(enrollFor.id) ?? 0;
     if (enrollFor.capacity > 0 && used >= enrollFor.capacity) return setEnrollError("الصف مكتمل العدد");
 
+    // ✅ حساب السعر مع رسوم التسجيل
     const price = toMinor(enrollForm.price);
     const discount = toMinor(enrollForm.discount);
-    const total = Math.max(0, price - discount);
+    const registrationFee = toMinor(enrollForm.registration_fee);
+    const total = Math.max(0, price - discount + registrationFee); // إضافة رسوم التسجيل إلى الإجمالي
+
     const n = Math.max(1, Number(enrollForm.count) || 1);
     const per = Math.floor(total / n);
     const installments = Array.from({ length: n }, (_, i) => {
@@ -142,19 +153,47 @@ function ClassesPage() {
       d.setMonth(d.getMonth() + i);
       return { due_date: d.toISOString().slice(0, 10), amount: i === n - 1 ? total - per * (n - 1) : per };
     });
+
+    // ✅ إضافة رسوم التسجيل كملاحظة في سبب الخصم
+    const reasonText = enrollForm.reason.trim();
+    const feeNote = registrationFee > 0 ? ` (تشمل رسوم تسجيل ${money(registrationFee, cur)})` : "";
+    const finalReason = reasonText ? `${reasonText}${feeNote}` : feeNote.trim() || "تسجيل جديد";
+
     try {
+      // ✅ تعديل price و discount لتمرير القيم الصحيحة مع تضمين رسوم التسجيل
+      const adjustedPrice = price + registrationFee; // نضيف رسوم التسجيل إلى السعر الأساسي
+      const adjustedDiscount = discount; // الخصم يبقى كما هو
+
       createEnrollmentWithInvoice(
         {
           student_id: enrollForm.student_id,
           class_id: enrollFor.id,
-          price,
-          discount,
-          discount_reason: enrollForm.reason.trim(),
+          price: adjustedPrice,
+          discount: adjustedDiscount,
+          discount_reason: finalReason,
           installments,
         },
         actor,
       );
+
+      // ✅ تسجيل رسوم التسجيل كمدخول منفصل (إن وجدت)
+      if (registrationFee > 0) {
+        transact((d) => {
+          d.incomes.push({
+            ...baseFields(),
+            source: `رسوم تسجيل - ${enrollFor.name}`,
+            amount: registrationFee,
+            date: today(),
+            note: `الطالب: ${db!.students.find(s => s.id === enrollForm.student_id)?.full_name || ""}`,
+            user_id: actor.id,
+            is_void: false,
+          });
+          audit(d, actor, "incomes", null, "create", `رسوم تسجيل للطالب ${enrollForm.student_id}`);
+        });
+      }
+
       setEnrollFor(null);
+      setEnrollError(null);
     } catch (e) {
       setEnrollError((e as Error).message);
     }
@@ -357,7 +396,7 @@ function ClassesPage() {
             </Select>
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={`السعر (${cur})`}>
+            <Field label={`سعر الدورة (${cur})`}>
               <Input value={enrollForm.price} onChange={(e) => setEnrollForm({ ...enrollForm, price: e.target.value })} />
             </Field>
             <Field label={`الخصم (${cur})`}>
@@ -367,6 +406,15 @@ function ClassesPage() {
               />
             </Field>
           </div>
+          {/* ✅ جديد: حقل رسوم التسجيل */}
+          <Field label={`رسوم التسجيل (${cur})`} hint="تُضاف إلى إجمالي الفاتورة">
+            <Input
+              type="number"
+              step="0.01"
+              value={enrollForm.registration_fee}
+              onChange={(e) => setEnrollForm({ ...enrollForm, registration_fee: e.target.value })}
+            />
+          </Field>
           <Field label="سبب الخصم">
             <Input value={enrollForm.reason} onChange={(e) => setEnrollForm({ ...enrollForm, reason: e.target.value })} />
           </Field>
@@ -379,7 +427,7 @@ function ClassesPage() {
             />
           </Field>
           <p className="rounded-lg bg-muted p-3 text-sm">
-            الصافي: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount)), cur)}</b>
+            الصافي: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount) + toMinor(enrollForm.registration_fee)), cur)}</b>
           </p>
           {enrollError ? <p className="text-sm font-semibold text-destructive">{enrollError}</p> : null}
           <div className="flex justify-end gap-2">
