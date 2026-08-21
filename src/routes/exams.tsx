@@ -94,7 +94,7 @@ function ExamsPage() {
       d.grade_revisions.push({
         ...baseFields(),
         grade_id: g.id,
-        old_score: g.old_score ?? reasonFor.oldScore,
+        old_score: reasonFor.oldScore,
         new_score: reasonFor.newScore,
         reason: reason.trim(),
         user_id: actor.id,
