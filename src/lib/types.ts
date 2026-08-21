@@ -52,6 +52,7 @@ export interface Student extends Base {
   guardian_name: string;
   guardian_phone: string;
   address: string;
+  education_level: "ابتدائي" | "متوسط" | "ثانوي" | "جامعي" | ""; // ✅ جديد
   status: "active" | "inactive" | "graduated";
   notes: string;
 }
