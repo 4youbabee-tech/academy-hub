@@ -13,7 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AttendanceRouteImport } from './routes/attendance'
 import { Route as ClassesRouteImport } from './routes/classes'
 import { Route as CoursesRouteImport } from './routes/courses'
+import { Route as EmployeesRouteImport } from './routes/employees'
 import { Route as ExamsRouteImport } from './routes/exams'
+import { Route as ExpensesRouteImport } from './routes/expenses'
+import { Route as FinanceRouteImport } from './routes/finance'
 import { Route as StudentsRouteImport } from './routes/students'
 import { Route as StudentsIdRouteImport } from './routes/students.$id'
 
@@ -37,9 +40,24 @@ const CoursesRoute = CoursesRouteImport.update({
   path: '/courses',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EmployeesRoute = EmployeesRouteImport.update({
+  id: '/employees',
+  path: '/employees',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ExamsRoute = ExamsRouteImport.update({
   id: '/exams',
   path: '/exams',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExpensesRoute = ExpensesRouteImport.update({
+  id: '/expenses',
+  path: '/expenses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FinanceRoute = FinanceRouteImport.update({
+  id: '/finance',
+  path: '/finance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StudentsRoute = StudentsRouteImport.update({
@@ -58,7 +76,10 @@ export interface FileRoutesByFullPath {
   '/attendance': typeof AttendanceRoute
   '/classes': typeof ClassesRoute
   '/courses': typeof CoursesRoute
+  '/employees': typeof EmployeesRoute
   '/exams': typeof ExamsRoute
+  '/expenses': typeof ExpensesRoute
+  '/finance': typeof FinanceRoute
   '/students': typeof StudentsRouteWithChildren
   '/students/$id': typeof StudentsIdRoute
 }
@@ -67,7 +88,10 @@ export interface FileRoutesByTo {
   '/attendance': typeof AttendanceRoute
   '/classes': typeof ClassesRoute
   '/courses': typeof CoursesRoute
+  '/employees': typeof EmployeesRoute
   '/exams': typeof ExamsRoute
+  '/expenses': typeof ExpensesRoute
+  '/finance': typeof FinanceRoute
   '/students': typeof StudentsRouteWithChildren
   '/students/$id': typeof StudentsIdRoute
 }
@@ -77,7 +101,10 @@ export interface FileRoutesById {
   '/attendance': typeof AttendanceRoute
   '/classes': typeof ClassesRoute
   '/courses': typeof CoursesRoute
+  '/employees': typeof EmployeesRoute
   '/exams': typeof ExamsRoute
+  '/expenses': typeof ExpensesRoute
+  '/finance': typeof FinanceRoute
   '/students': typeof StudentsRouteWithChildren
   '/students/$id': typeof StudentsIdRoute
 }
@@ -88,7 +115,10 @@ export interface FileRouteTypes {
     | '/attendance'
     | '/classes'
     | '/courses'
+    | '/employees'
     | '/exams'
+    | '/expenses'
+    | '/finance'
     | '/students'
     | '/students/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -97,7 +127,10 @@ export interface FileRouteTypes {
     | '/attendance'
     | '/classes'
     | '/courses'
+    | '/employees'
     | '/exams'
+    | '/expenses'
+    | '/finance'
     | '/students'
     | '/students/$id'
   id:
@@ -106,7 +139,10 @@ export interface FileRouteTypes {
     | '/attendance'
     | '/classes'
     | '/courses'
+    | '/employees'
     | '/exams'
+    | '/expenses'
+    | '/finance'
     | '/students'
     | '/students/$id'
   fileRoutesById: FileRoutesById
@@ -116,7 +152,10 @@ export interface RootRouteChildren {
   AttendanceRoute: typeof AttendanceRoute
   ClassesRoute: typeof ClassesRoute
   CoursesRoute: typeof CoursesRoute
+  EmployeesRoute: typeof EmployeesRoute
   ExamsRoute: typeof ExamsRoute
+  ExpensesRoute: typeof ExpensesRoute
+  FinanceRoute: typeof FinanceRoute
   StudentsRoute: typeof StudentsRouteWithChildren
 }
 
@@ -150,11 +189,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CoursesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/employees': {
+      id: '/employees'
+      path: '/employees'
+      fullPath: '/employees'
+      preLoaderRoute: typeof EmployeesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/exams': {
       id: '/exams'
       path: '/exams'
       fullPath: '/exams'
       preLoaderRoute: typeof ExamsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/expenses': {
+      id: '/expenses'
+      path: '/expenses'
+      fullPath: '/expenses'
+      preLoaderRoute: typeof ExpensesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance': {
+      id: '/finance'
+      path: '/finance'
+      fullPath: '/finance'
+      preLoaderRoute: typeof FinanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/students': {
@@ -191,7 +251,10 @@ const rootRouteChildren: RootRouteChildren = {
   AttendanceRoute: AttendanceRoute,
   ClassesRoute: ClassesRoute,
   CoursesRoute: CoursesRoute,
+  EmployeesRoute: EmployeesRoute,
   ExamsRoute: ExamsRoute,
+  ExpensesRoute: ExpensesRoute,
+  FinanceRoute: FinanceRoute,
   StudentsRoute: StudentsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
