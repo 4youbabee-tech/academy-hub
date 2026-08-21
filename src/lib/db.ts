@@ -73,6 +73,13 @@ export function emptyDb(): DB {
       student_code_prefix: "ST-",
       student_code_next: 1,
       grading: { pass_mark: 50, weights: { final: 50, midterm: 25, quiz: 15, attendance: 10 } },
+      // ✅ جديد: إعدادات الإيصالات
+      receipt_show_logo: true,
+      receipt_paper_size: "A5",
+      receipt_show_payment_method: true,
+      receipt_show_guardian: true,
+      receipt_show_notes: true,
+      receipt_footer_text: "شكراً لثقتكم بنا",
     },
     expense_categories: ["إيجار", "كهرباء", "قرطاسية", "صيانة", "تسويق", "أخرى"],
     users: [],
