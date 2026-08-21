@@ -28,7 +28,16 @@ function Dashboard() {
   const billed = db.invoices.filter((i) => i.status !== "cancelled").reduce((s, i) => s + i.total, 0);
   const paid = db.payments.filter((p) => !p.is_void).reduce((s, p) => s + p.amount, 0);
   const month = today().slice(0, 7);
-  const pl = profitAndLoss(db, `${month}-01`, `${month}-31`);
+  
+  // ✅ حساب الربح والخسارة مع معالجة الأخطاء
+  let pl = { net: 0, income: 0, cost: 0, tuition: 0, otherIncome: 0, expenses: 0, payroll: 0 };
+  try {
+    pl = profitAndLoss(db, `${month}-01`, `${month}-31`);
+  } catch (error) {
+    console.error("خطأ في حساب الربح والخسارة:", error);
+    // استمرار مع القيم الافتراضية
+  }
+
   const overdue = overdueInstallments(db);
 
   return (
