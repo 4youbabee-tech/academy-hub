@@ -62,6 +62,8 @@ function StudentProfile() {
         <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           <p>تاريخ الميلاد: {dateStr(student.birth_date)}</p>
           <p>الجنس: {student.gender === "male" ? "ذكر" : student.gender === "female" ? "أنثى" : "—"}</p>
+          {/* ✅ جديد: عرض المستوى التعليمي */}
+          <p>المستوى التعليمي: {student.education_level || "—"}</p>
           <p>ولي الأمر: {student.guardian_name || "—"} {student.guardian_phone ? `(${student.guardian_phone})` : ""}</p>
           <p>العنوان: {student.address || "—"}</p>
           {student.notes ? <p className="sm:col-span-2">ملاحظات: {student.notes}</p> : null}
