@@ -13,8 +13,6 @@ export const Route = createFileRoute("/students")({
     meta: [
       { title: "الطلاب — نظام إدارة المعهد" },
       { name: "description", content: "إدارة سجلات الطلاب: البيانات الشخصية، أولياء الأمور، الحالة والرصيد المالي." },
-      { property: "og:title", content: "الطلاب — نظام إدارة المعهد" },
-      { property: "og:description", content: "إدارة سجلات الطلاب وحالتهم الأكاديمية والمالية." },
     ],
   }),
   component: StudentsPage,
@@ -28,6 +26,7 @@ const EMPTY = {
   guardian_name: "",
   guardian_phone: "",
   address: "",
+  education_level: "" as Student["education_level"], // ✅ جديد
   status: "active" as Student["status"],
   notes: "",
 };
@@ -77,6 +76,7 @@ function StudentsPage() {
       guardian_name: s.guardian_name,
       guardian_phone: s.guardian_phone,
       address: s.address,
+      education_level: s.education_level || "", // ✅ جديد
       status: s.status,
       notes: s.notes,
     });
@@ -88,7 +88,17 @@ function StudentsPage() {
     if (!form.full_name.trim()) return setError("اسم الطالب إلزامي");
     try {
       if (editing) {
-        update("students", editing.id, { ...form, birth_date: form.birth_date || null }, actor, `تعديل الطالب ${form.full_name}`);
+        update(
+          "students",
+          editing.id,
+          {
+            ...form,
+            birth_date: form.birth_date || null,
+            education_level: form.education_level || null, // ✅ جديد
+          },
+          actor,
+          `تعديل الطالب ${form.full_name}`,
+        );
       } else {
         let code = "";
         transact((d) => {
@@ -96,7 +106,12 @@ function StudentsPage() {
         });
         insert(
           "students",
-          { ...form, code, birth_date: form.birth_date || null },
+          {
+            ...form,
+            code,
+            birth_date: form.birth_date || null,
+            education_level: form.education_level || null, // ✅ جديد
+          },
           actor,
           `إضافة الطالب ${form.full_name}`,
         );
@@ -128,7 +143,7 @@ function StudentsPage() {
       </div>
 
       {rows.length ? (
-        <Table head={["الرمز", "الاسم", "الهاتف", "الحالة", "الرصيد المستحق", ""]}>
+        <Table head={["الرمز", "الاسم", "الهاتف", "المستوى", "الحالة", "الرصيد المستحق", ""]}>
           {rows.map((s) => {
             const bal = studentBalance(db, s.id);
             return (
@@ -140,12 +155,15 @@ function StudentsPage() {
                   </Link>
                 </Td>
                 <Td className="tabular-nums">{s.phone || "—"}</Td>
+                <Td>{s.education_level || "—"}</Td> {/* ✅ جديد */}
                 <Td>
                   <Badge tone={s.status === "active" ? "success" : s.status === "graduated" ? "primary" : "muted"}>
                     {s.status === "active" ? "نشط" : s.status === "graduated" ? "متخرّج" : "غير نشط"}
                   </Badge>
                 </Td>
-                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
+                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>
+                  {money(bal.due, cur)}
+                </Td>
                 <Td>
                   {canEdit ? (
                     <Button variant="ghost" onClick={() => startEdit(s)}>
@@ -184,6 +202,18 @@ function StudentsPage() {
           </Field>
           <Field label="هاتف ولي الأمر">
             <Input value={form.guardian_phone} onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })} />
+          </Field>
+          <Field label="المستوى التعليمي">
+            <Select
+              value={form.education_level}
+              onChange={(e) => setForm({ ...form, education_level: e.target.value as Student["education_level"] })}
+            >
+              <option value="">— اختر —</option>
+              <option value="ابتدائي">ابتدائي</option>
+              <option value="متوسط">متوسط</option>
+              <option value="ثانوي">ثانوي</option>
+              <option value="جامعي">جامعي</option>
+            </Select>
           </Field>
           <Field label="الحالة">
             <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Student["status"] })}>
