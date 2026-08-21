@@ -25,11 +25,13 @@ function SettingsPage() {
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(db?.settings?.logo_data_url || null);
 
   useEffect(() => {
     if (db) {
       setSettings(db.settings);
       setExpenseCategories(db.expense_categories || []);
+      setLogoPreview(db.settings?.logo_data_url || null);
     }
   }, [db]);
 
@@ -62,6 +64,18 @@ function SettingsPage() {
 
   function removeCategory(index: number) {
     setExpenseCategories(expenseCategories.filter((_, i) => i !== index));
+  }
+
+  function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setLogoPreview(dataUrl);
+      setSettings({ ...settings, logo_data_url: dataUrl });
+    };
+    reader.readAsDataURL(file);
   }
 
   if (!settings) return <Empty text="جاري تحميل الإعدادات..." />;
@@ -320,6 +334,137 @@ function SettingsPage() {
             <p className="text-xs text-muted-foreground">تُستخدم هذه الأنواع في شاشة المصاريف.</p>
           </div>
         </div>
+      </div>
+
+      {/* ✅ قسم الشعار */}
+      <div className="mt-6 panel p-5">
+        <h2 className="mb-4 text-sm font-bold">🖼️ شعار المعهد</h2>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <Field label="تحميل الشعار" className="flex-1">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleLogoUpload}
+              disabled={!canEdit}
+              className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20"
+            />
+          </Field>
+          {logoPreview && (
+            <div className="shrink-0">
+              <img src={logoPreview} alt="شعار المعهد" className="max-h-24 w-auto rounded-lg border border-border" />
+            </div>
+          )}
+        </div>
+        {!logoPreview && <p className="mt-2 text-sm text-muted-foreground">لم يتم رفع شعار بعد.</p>}
+      </div>
+
+      {/* ✅ قسم إعدادات الإيصالات */}
+      <div className="mt-6 panel p-5">
+        <h2 className="mb-4 text-sm font-bold">🧾 إعدادات الإيصالات</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="حجم الورق">
+            <Select
+              value={settings.receipt_paper_size || "A5"}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_paper_size: e.target.value as "A4" | "A5",
+                })
+              }
+              disabled={!canEdit}
+            >
+              <option value="A4">A4</option>
+              <option value="A5">A5</option>
+            </Select>
+          </Field>
+          <Field label="نص التذييل">
+            <Input
+              value={settings.receipt_footer_text || "شكراً لثقتكم بنا"}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_footer_text: e.target.value,
+                })
+              }
+              disabled={!canEdit}
+            />
+          </Field>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="showLogo"
+              checked={settings.receipt_show_logo !== false}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_show_logo: e.target.checked,
+                })
+              }
+              disabled={!canEdit}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+            />
+            <label htmlFor="showLogo" className="text-sm font-medium text-foreground">
+              إظهار الشعار في الإيصال
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="showPaymentMethod"
+              checked={settings.receipt_show_payment_method !== false}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_show_payment_method: e.target.checked,
+                })
+              }
+              disabled={!canEdit}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+            />
+            <label htmlFor="showPaymentMethod" className="text-sm font-medium text-foreground">
+              إظهار طريقة الدفع
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="showGuardian"
+              checked={settings.receipt_show_guardian !== false}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_show_guardian: e.target.checked,
+                })
+              }
+              disabled={!canEdit}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+            />
+            <label htmlFor="showGuardian" className="text-sm font-medium text-foreground">
+              إظهار اسم ولي الأمر
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="showNotes"
+              checked={settings.receipt_show_notes !== false}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  receipt_show_notes: e.target.checked,
+                })
+              }
+              disabled={!canEdit}
+              className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+            />
+            <label htmlFor="showNotes" className="text-sm font-medium text-foreground">
+              إظهار الملاحظات
+            </label>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          هذه الإعدادات تؤثر على طباعة الإيصالات في شاشة الفواتير والدفعات.
+        </p>
       </div>
 
       {canEdit && (
