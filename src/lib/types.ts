@@ -30,6 +30,13 @@ export interface Settings {
     pass_mark: number; // percentage
     weights: { final: number; midterm: number; quiz: number; attendance: number };
   };
+  // ✅ جديد: إعدادات الإيصالات
+  receipt_show_logo: boolean;
+  receipt_paper_size: "A4" | "A5";
+  receipt_show_payment_method: boolean;
+  receipt_show_guardian: boolean;
+  receipt_show_notes: boolean;
+  receipt_footer_text: string;
 }
 
 export interface User extends Base {
@@ -148,6 +155,7 @@ export interface Payment extends Base {
   is_void: boolean;
   void_reason: string;
   user_id: ID | null;
+  note?: string; // ✅ إضافة حقل اختياري للملاحظات على الدفعة
 }
 
 export interface Employee extends Base {
