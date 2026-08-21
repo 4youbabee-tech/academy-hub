@@ -16,9 +16,7 @@ const NAV: { group: string; items: { to: string; label: string; perm: string }[]
       { to: "/students", label: "الطلاب", perm: "students.view" },
       { to: "/courses", label: "الدورات", perm: "courses.view" },
       { to: "/classes", label: "الصفوف والجداول", perm: "classes.view" },
-      { to: "/attendance", label: "الحضور والغياب", perm: "attendance.view" },
-      { to: "/exams", label: "الامتحانات والعلامات", perm: "exams.view" },
-      { to: "/certificates", label: "الشهادات", perm: "certificates.view" },
+      
     ],
   },
   {
