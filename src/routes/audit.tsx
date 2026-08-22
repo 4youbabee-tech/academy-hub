@@ -49,8 +49,8 @@ function AuditPage() {
     return logs.sort((a, b) => b.at.localeCompare(a.at));
   }, [db, q, entity, action, dateFrom, dateTo]);
 
-  function getActionBadge(action: string) {
-    const map: Record<string, string> = {
+  function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
+    const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
       create: "success",
       update: "primary",
       delete: "danger",

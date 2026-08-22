@@ -57,7 +57,7 @@ function UsersPage() {
     if (!form.username.trim()) return setError("اسم المستخدم إلزامي");
     if (!form.full_name.trim()) return setError("الاسم الظاهر إلزامي");
 
-    const existing = db.users.find(
+    const existing = db!.users.find(
       (u) => u.username.toLowerCase() === form.username.trim().toLowerCase() && u.id !== editing?.id,
     );
     if (existing) return setError("اسم المستخدم موجود مسبقاً");
