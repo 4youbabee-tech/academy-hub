@@ -27,15 +27,14 @@ function Dashboard() {
   const runningClasses = db.classes.filter((c) => c.status === "running").length;
   const billed = db.invoices.filter((i) => i.status !== "cancelled").reduce((s, i) => s + i.total, 0);
   const paid = db.payments.filter((p) => !p.is_void).reduce((s, p) => s + p.amount, 0);
+  const studentsDue = Math.max(0, billed - paid);
   const month = today().slice(0, 7);
 
-  // ✅ حساب الربح والخسارة مع معالجة الأخطاء
   let pl = { net: 0, income: 0, cost: 0, tuition: 0, otherIncome: 0, expenses: 0, payroll: 0 };
   try {
     pl = profitAndLoss(db, `${month}-01`, `${month}-31`);
   } catch (error) {
     console.error("خطأ في حساب الربح والخسارة:", error);
-    // استمرار مع القيم الافتراضية
   }
 
   const overdue = overdueInstallments(db);
@@ -44,11 +43,33 @@ function Dashboard() {
     <div>
       <PageHeader title="لوحة المعلومات" subtitle={`${db.settings.institute_name} — السنة ${db.settings.academic_year}`} />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="الطلاب النشطون" value={String(activeStudents)} hint={`الإجمالي ${db.students.length}`} />
-        <Stat label="صفوف قيد التنفيذ" value={String(runningClasses)} hint={`الإجمالي ${db.classes.length}`} />
-        <Stat label="المستحق غير المحصّل" value={money(billed - paid, cur)} tone={billed - paid > 0 ? "warning" : "success"} />
-        <Stat label="صافي الشهر الحالي" value={money(pl.net, cur)} tone={pl.net >= 0 ? "success" : "danger"} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <Stat label="الطلاب النشطون" value={String(activeStudents)} hint={`إجمالي الطلاب: ${db.students.length}`} />
+        <Stat label="صفوف قيد التنفيذ" value={String(runningClasses)} hint={`إجمالي الصفوف: ${db.classes.length}`} />
+        <Stat
+          label="إجمالي المتبقي على الطلاب"
+          value={money(studentsDue, cur)}
+          hint="المبالغ المستحقة على الطلاب ناقص ما تم قبضه"
+          tone={studentsDue > 0 ? "warning" : "success"}
+        />
+        <Stat
+          label="مقبوضات الطلاب هذا الشهر"
+          value={money(pl.tuition, cur)}
+          hint="مجموع سندات القبض السارية خلال الشهر الحالي"
+          tone="success"
+        />
+        <Stat
+          label="إجمالي مصروفات الشركة هذا الشهر"
+          value={money(pl.cost, cur)}
+          hint={`تشغيلية ${money(pl.expenses, cur)} + رواتب ${money(pl.payroll, cur)}`}
+          tone={pl.cost > 0 ? "danger" : "muted"}
+        />
+        <Stat
+          label="صافي الشهر الحالي"
+          value={money(pl.net, cur)}
+          hint="إجمالي المداخيل ناقص إجمالي مصروفات الشركة"
+          tone={pl.net >= 0 ? "success" : "danger"}
+        />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
