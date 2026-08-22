@@ -1,9 +1,9 @@
-import type { Base, CollectionKey, DB, ID, User } from "./types";
+import type { Base, CollectionKey, DB, ID, Settings, User } from "./types";
 
 const DB_NAME = "institute-db";
 const STORE = "kv";
 const KEY = "main";
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /* ---------------- IndexedDB primitives ---------------- */
 
@@ -68,12 +68,8 @@ export function emptyDb(): DB {
       academic_year: `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       receipt_prefix: "R-",
       receipt_next: 1,
-      certificate_prefix: "C-",
-      certificate_next: 1,
       student_code_prefix: "ST-",
       student_code_next: 1,
-      grading: { pass_mark: 50, weights: { final: 50, midterm: 25, quiz: 15, attendance: 10 } },
-      // ✅ جديد: إعدادات الإيصالات
       receipt_show_logo: true,
       receipt_paper_size: "A5",
       receipt_show_payment_method: true,
@@ -87,10 +83,6 @@ export function emptyDb(): DB {
     courses: [],
     classes: [],
     enrollments: [],
-    attendance: [],
-    exams: [],
-    grades: [],
-    grade_revisions: [],
     invoices: [],
     installments: [],
     payments: [],
@@ -99,8 +91,50 @@ export function emptyDb(): DB {
     advances: [],
     expenses: [],
     incomes: [],
-    certificates: [],
     audit_log: [],
+  };
+}
+
+/**
+ * Upgrades old local databases to the current lightweight schema.
+ * Attendance, exams, grades and certificates were removed from Academy Hub,
+ * so their legacy data is intentionally discarded during this migration.
+ */
+function normalizeDb(value: unknown): DB {
+  const base = emptyDb();
+  if (!value || typeof value !== "object") return base;
+
+  const raw = value as Record<string, unknown>;
+  const {
+    attendance: _attendance,
+    exams: _exams,
+    grades: _grades,
+    grade_revisions: _gradeRevisions,
+    certificates: _certificates,
+    settings: _settings,
+    schema_version: _schemaVersion,
+    ...rest
+  } = raw;
+
+  const rawSettings = raw.settings && typeof raw.settings === "object"
+    ? (raw.settings as Record<string, unknown>)
+    : {};
+
+  const {
+    grading: _grading,
+    certificate_prefix: _certificatePrefix,
+    certificate_next: _certificateNext,
+    ...settingsRest
+  } = rawSettings;
+
+  return {
+    ...base,
+    ...(rest as Partial<DB>),
+    schema_version: SCHEMA_VERSION,
+    settings: {
+      ...base.settings,
+      ...(settingsRest as Partial<Settings>),
+    },
   };
 }
 
@@ -127,9 +161,10 @@ export async function loadDb(): Promise<DB> {
   if (current) return current;
   if (loading) return loading;
   loading = (async () => {
-    const stored = await idbGet<DB>(KEY);
+    const stored = await idbGet<unknown>(KEY);
     if (stored) {
-      current = { ...emptyDb(), ...stored, settings: { ...emptyDb().settings, ...stored.settings } };
+      current = normalizeDb(stored);
+      await idbSet(KEY, current);
     } else {
       const fresh = emptyDb();
       const now = new Date().toISOString();
@@ -173,14 +208,14 @@ function persist() {
 export function transact(recipe: (db: DB) => void): void {
   if (!current) throw new Error("DB not loaded");
   const draft: DB = structuredClone(current);
-  recipe(draft); // if this throws, `current` stays untouched
+  recipe(draft);
   current = draft;
   persist();
   notify();
 }
 
 export function replaceDb(next: DB): void {
-  current = { ...emptyDb(), ...next, settings: { ...emptyDb().settings, ...next.settings } };
+  current = normalizeDb(next);
   persist();
   notify();
 }
@@ -259,12 +294,6 @@ export function nextReceiptNo(db: DB): string {
   const n = db.settings.receipt_next;
   db.settings.receipt_next = n + 1;
   return `${db.settings.receipt_prefix}${String(n).padStart(5, "0")}`;
-}
-
-export function nextCertificateSerial(db: DB): string {
-  const n = db.settings.certificate_next;
-  db.settings.certificate_next = n + 1;
-  return `${db.settings.certificate_prefix}${String(n).padStart(5, "0")}`;
 }
 
 export function nextStudentCode(db: DB): string {
