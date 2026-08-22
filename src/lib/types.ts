@@ -59,7 +59,7 @@ export interface Student extends Base {
   guardian_name: string;
   guardian_phone: string;
   address: string;
-  education_level: "ابتدائي" | "متوسط" | "ثانوي" | "جامعي" | ""; // ✅ جديد
+  education_level: "ابتدائي" | "متوسط" | "ثانوي" | "جامعي" | "" | null;
   status: "active" | "inactive" | "graduated";
   notes: string;
 }
@@ -142,6 +142,10 @@ export interface Installment extends Base {
   due_date: string;
   amount: number;
   status: "due" | "paid" | "partial";
+  /** "registration" = رسوم التسجيل، "installment" = قسط عادي */
+  kind?: "registration" | "installment";
+  /** 0 لرسوم التسجيل، 1..n لأرقام الأقساط */
+  seq?: number;
 }
 
 export interface Payment extends Base {

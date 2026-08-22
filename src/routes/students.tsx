@@ -205,7 +205,7 @@ function StudentsPage() {
           </Field>
           <Field label="المستوى التعليمي">
             <Select
-              value={form.education_level}
+              value={form.education_level ?? ""}
               onChange={(e) => setForm({ ...form, education_level: e.target.value as Student["education_level"] })}
             >
               <option value="">— اختر —</option>

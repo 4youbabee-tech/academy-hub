@@ -120,9 +120,11 @@ export function Stat({
 export function Badge({
   children,
   tone = "muted",
+  className,
 }: {
   children: ReactNode;
   tone?: "muted" | "success" | "warning" | "danger" | "primary";
+  className?: string;
 }) {
   const tones = {
     muted: "bg-muted text-muted-foreground",
@@ -132,7 +134,7 @@ export function Badge({
     primary: "bg-primary/12 text-primary",
   } as const;
   return (
-    <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold", tones[tone])}>
+    <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold", tones[tone], className)}>
       {children}
     </span>
   );
