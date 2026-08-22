@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
-import { insert, update, transact, audit, baseFields } from "@/lib/db";
+import { insert, update } from "@/lib/db";
 import { createEnrollmentWithInvoice } from "@/lib/finance";
 import { dateStr, fromMinor, money, today, toMinor, WEEKDAYS } from "@/lib/format";
 import type { Klass } from "@/lib/types";
@@ -140,57 +140,39 @@ function ClassesPage() {
     const used = counts.get(enrollFor.id) ?? 0;
     if (enrollFor.capacity > 0 && used >= enrollFor.capacity) return setEnrollError("الصف مكتمل العدد");
 
-    // ✅ حساب السعر مع رسوم التسجيل
+    // حساب صافي قيمة الدورة ورسوم التسجيل بشكل منفصل
     const price = toMinor(enrollForm.price);
     const discount = toMinor(enrollForm.discount);
     const registrationFee = toMinor(enrollForm.registration_fee);
-    const total = Math.max(0, price - discount + registrationFee); // إضافة رسوم التسجيل إلى الإجمالي
+    const tuition = Math.max(0, price - discount);
 
     const n = Math.max(1, Number(enrollForm.count) || 1);
-    const per = Math.floor(total / n);
-    const installments = Array.from({ length: n }, (_, i) => {
-      const d = new Date();
-      d.setMonth(d.getMonth() + i);
-      return { due_date: d.toISOString().slice(0, 10), amount: i === n - 1 ? total - per * (n - 1) : per };
-    });
+    const per = n > 0 ? Math.floor(tuition / n) : 0;
+    const installments = tuition > 0
+      ? Array.from({ length: n }, (_, i) => {
+          const d = new Date();
+          d.setMonth(d.getMonth() + i);
+          return { due_date: d.toISOString().slice(0, 10), amount: i === n - 1 ? tuition - per * (n - 1) : per };
+        })
+      : [];
 
-    // ✅ إضافة رسوم التسجيل كملاحظة في سبب الخصم
     const reasonText = enrollForm.reason.trim();
-    const feeNote = registrationFee > 0 ? ` (تشمل رسوم تسجيل ${money(registrationFee, cur)})` : "";
+    const feeNote = registrationFee > 0 ? ` (رسوم تسجيل ${money(registrationFee, cur)})` : "";
     const finalReason = reasonText ? `${reasonText}${feeNote}` : feeNote.trim() || "تسجيل جديد";
 
     try {
-      // ✅ تعديل price و discount لتمرير القيم الصحيحة مع تضمين رسوم التسجيل
-      const adjustedPrice = price + registrationFee; // نضيف رسوم التسجيل إلى السعر الأساسي
-      const adjustedDiscount = discount; // الخصم يبقى كما هو
-
       createEnrollmentWithInvoice(
         {
           student_id: enrollForm.student_id,
           class_id: enrollFor.id,
-          price: adjustedPrice,
-          discount: adjustedDiscount,
+          price,
+          discount,
+          registration_fee: registrationFee,
           discount_reason: finalReason,
           installments,
         },
         actor,
       );
-
-      // ✅ تسجيل رسوم التسجيل كمدخول منفصل (إن وجدت)
-      if (registrationFee > 0) {
-        transact((d) => {
-          d.incomes.push({
-            ...baseFields(),
-            source: `رسوم تسجيل - ${enrollFor.name}`,
-            amount: registrationFee,
-            date: today(),
-            note: `الطالب: ${db!.students.find(s => s.id === enrollForm.student_id)?.full_name || ""}`,
-            user_id: actor.id,
-            is_void: false,
-          });
-          audit(d, actor, "incomes", null, "create", `رسوم تسجيل للطالب ${enrollForm.student_id}`);
-        });
-      }
 
       setEnrollFor(null);
       setEnrollError(null);
