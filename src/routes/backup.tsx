@@ -5,7 +5,7 @@ import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, PageHeader, Select, Table, Td } from "@/components/ui-kit";
 import { dateStr } from "@/lib/format";
 
-export const Route = createFileRoute("/audit")({
+export const Route = createFileRoute("/backup")({
   head: () => ({
     meta: [
       { title: "سجل التدقيق — نظام إدارة المعهد" },

@@ -7,7 +7,7 @@ import { insert, update, remove, hashPassword } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import type { User, RoleKey } from "@/lib/types";
 
-export const Route = createFileRoute("/users")({
+export const Route = createFileRoute("/audit")({
   head: () => ({
     meta: [
       { title: "المستخدمون — نظام إدارة المعهد" },
