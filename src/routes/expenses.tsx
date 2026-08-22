@@ -10,7 +10,7 @@ export const Route = createFileRoute("/expenses")({
   head: () => ({
     meta: [
       { title: "المصاريف والمداخيل — نظام إدارة المعهد" },
-      { name: "description", content: "تسجيل مصاريف المعهد والمداخيل الأخرى وإلغاؤها بسبب موثّق." },
+      { name: "description", content: "المصاريف التشغيلية والمداخيل الأخرى مع عرض مالي واضح وآمن." },
       { property: "og:title", content: "المصاريف والمداخيل — نظام إدارة المعهد" },
       { property: "og:description", content: "مصاريف تشغيلية ومداخيل إضافية مع سجل تدقيق." },
       { property: "og:type", content: "website" },
@@ -26,19 +26,25 @@ function ExpensesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ category: "", amount: "", date: today(), note: "" });
   const [error, setError] = useState<string | null>(null);
+  const [voidExpenseId, setVoidExpenseId] = useState<string | null>(null);
 
   const expenses = useMemo(() => (db ? db.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)) : []), [db]);
-  const incomes = useMemo(() => (db ? db.incomes.slice().sort((a, b) => b.date.localeCompare(a.date)) : []), [db]);
+  const incomes = useMemo(
+    () => (db ? db.incomes.filter((i) => !i.is_void).slice().sort((a, b) => b.date.localeCompare(a.date)) : []),
+    [db],
+  );
 
   if (!db) return null;
   if (!allowed("expenses.view")) return <Denied />;
   const canEdit = allowed("expenses.create");
   const cur = db.settings.currency;
+  const voidExpense = voidExpenseId ? db.expenses.find((e) => e.id === voidExpenseId) ?? null : null;
 
   function save() {
     const amount = toMinor(form.amount);
     if (amount <= 0) return setError("المبلغ غير صالح");
     if (!form.category.trim()) return setError(tab === "expense" ? "البند إلزامي" : "المصدر إلزامي");
+
     if (tab === "expense") {
       insert(
         "expenses",
@@ -54,8 +60,21 @@ function ExpensesPage() {
         `مدخول ${form.category}`,
       );
     }
+
     setOpen(false);
     setError(null);
+  }
+
+  function confirmVoidExpense() {
+    if (!voidExpense) return;
+    update(
+      "expenses",
+      voidExpense.id,
+      { is_void: true },
+      actor,
+      `إلغاء مصروف ${voidExpense.category}`,
+    );
+    setVoidExpenseId(null);
   }
 
   const totalOperatingExpenses = expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
@@ -63,7 +82,7 @@ function ExpensesPage() {
     .filter((p) => p.status === "paid")
     .reduce((s, p) => s + p.net + p.advance_deducted, 0);
   const totalCompanyExpenses = totalOperatingExpenses + totalPaidPayroll;
-  const totalInc = incomes.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
+  const totalInc = incomes.reduce((s, e) => s + e.amount, 0);
 
   return (
     <div>
@@ -111,7 +130,7 @@ function ExpensesPage() {
         ) : (
           <Table head={["البند", "المبلغ", "التاريخ", "ملاحظة", "الحالة", ""]}>
             {expenses.map((e) => (
-              <tr key={e.id}>
+              <tr key={e.id} className={e.is_void ? "opacity-60" : ""}>
                 <Td className="font-semibold">{e.category}</Td>
                 <Td className="tabular-nums">{money(e.amount, cur)}</Td>
                 <Td>{dateStr(e.date)}</Td>
@@ -119,7 +138,7 @@ function ExpensesPage() {
                 <Td>{e.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</Td>
                 <Td>
                   {!e.is_void && canEdit ? (
-                    <Button variant="ghost" onClick={() => update("expenses", e.id, { is_void: true }, actor, `إلغاء مصروف ${e.category}`)}>
+                    <Button variant="ghost" onClick={() => setVoidExpenseId(e.id)}>
                       إلغاء
                     </Button>
                   ) : null}
@@ -128,27 +147,26 @@ function ExpensesPage() {
             ))}
           </Table>
         )
-      ) : incomes.length === 0 ? (
-        <Empty text="لا توجد مداخيل." />
       ) : (
-        <Table head={["المصدر", "المبلغ", "التاريخ", "ملاحظة", "الحالة", ""]}>
-          {incomes.map((e) => (
-            <tr key={e.id}>
-              <Td className="font-semibold">{e.source}</Td>
-              <Td className="tabular-nums">{money(e.amount, cur)}</Td>
-              <Td>{dateStr(e.date)}</Td>
-              <Td>{e.note || "—"}</Td>
-              <Td>{e.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</Td>
-              <Td>
-                {!e.is_void && canEdit ? (
-                  <Button variant="ghost" onClick={() => update("incomes", e.id, { is_void: true }, actor, `إلغاء مدخول ${e.source}`)}>
-                    إلغاء
-                  </Button>
-                ) : null}
-              </Td>
-            </tr>
-          ))}
-        </Table>
+        <>
+          <div className="mb-3 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+            المداخيل هنا للعرض. سندات قبض الطلاب تُدار من صفحة الإيصالات والفواتير، ولا يتم إلغاؤها من هذه الشاشة. المداخيل الملغاة لا تدخل في الإجمالي ولا تظهر ضمن قائمة المداخيل الفعلية.
+          </div>
+          {incomes.length === 0 ? (
+            <Empty text="لا توجد مداخيل فعلية." />
+          ) : (
+            <Table head={["المصدر", "المبلغ", "التاريخ", "ملاحظة"]}>
+              {incomes.map((e) => (
+                <tr key={e.id}>
+                  <Td className="font-semibold">{e.source}</Td>
+                  <Td className="tabular-nums">{money(e.amount, cur)}</Td>
+                  <Td>{dateStr(e.date)}</Td>
+                  <Td>{e.note || "—"}</Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </>
       )}
 
       <Modal open={open} title={tab === "expense" ? "مصروف جديد" : "مدخول جديد"} onClose={() => setOpen(false)}>
@@ -186,6 +204,33 @@ function ExpensesPage() {
             <Button onClick={save}>حفظ</Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!voidExpense} title="تأكيد إلغاء المصروف" onClose={() => setVoidExpenseId(null)}>
+        {voidExpense ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm">
+              <p className="font-bold">هل أنت متأكد من إلغاء هذا المصروف؟</p>
+              <div className="mt-3 space-y-1 text-muted-foreground">
+                <p>البند: <b className="text-foreground">{voidExpense.category}</b></p>
+                <p>المبلغ: <b className="text-foreground">{money(voidExpense.amount, cur)}</b></p>
+                <p>التاريخ: <b className="text-foreground">{dateStr(voidExpense.date)}</b></p>
+                {voidExpense.note ? <p>الملاحظة: <b className="text-foreground">{voidExpense.note}</b></p> : null}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              سيبقى المصروف محفوظًا في السجل بحالة «ملغى»، لكنه لن يدخل في إجمالي المصاريف الفعلية.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setVoidExpenseId(null)}>
+                تراجع
+              </Button>
+              <Button variant="danger" onClick={confirmVoidExpense}>
+                تأكيد الإلغاء
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );
