@@ -42,7 +42,6 @@ const EMPTY_ENROLL = {
   discount: "0",
   registration_fee: "0",
   reason: "",
-  count: "1",
 };
 
 function ClassesPage() {
@@ -145,30 +144,17 @@ function ClassesPage() {
       discount: "0",
       registration_fee: "0",
       reason: "",
-      count: "1",
     });
     setEnrollError(null);
   }
 
-  function buildInstallments(priceText: string, discountText: string, countText: string, firstDueDate?: string) {
+  function buildInstallments(priceText: string, discountText: string, firstDueDate?: string) {
     const price = toMinor(priceText);
     const discount = toMinor(discountText);
     const tuition = Math.max(0, price - discount);
-    const n = Math.max(1, Number(countText) || 1);
-    const per = n > 0 ? Math.floor(tuition / n) : 0;
-    const baseDate = firstDueDate ? new Date(`${firstDueDate}T12:00:00`) : new Date();
-
-    const installments = tuition > 0
-      ? Array.from({ length: n }, (_, i) => {
-          const d = new Date(baseDate);
-          d.setMonth(d.getMonth() + i);
-          return {
-            due_date: d.toISOString().slice(0, 10),
-            amount: i === n - 1 ? tuition - per * (n - 1) : per,
-          };
-        })
-      : [];
-
+    const dueDate = firstDueDate || new Date().toISOString().slice(0, 10);
+    // استحقاق داخلي واحد فقط لقيمة الدورة؛ العامل غير ملزم بخطة أقساط.
+    const installments = tuition > 0 ? [{ due_date: dueDate, amount: tuition }] : [];
     return { price, discount, tuition, installments };
   }
 
@@ -185,7 +171,6 @@ function ClassesPage() {
     const { price, discount, installments } = buildInstallments(
       enrollForm.price,
       enrollForm.discount,
-      enrollForm.count,
     );
     const registrationFee = toMinor(enrollForm.registration_fee);
     const reasonText = enrollForm.reason.trim();
@@ -216,9 +201,6 @@ function ClassesPage() {
     const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
     const invoiceInstallments = invoice ? db.installments.filter((i) => i.invoice_id === invoice.id) : [];
     const registration = invoiceInstallments.find((i) => i.kind === "registration");
-    const regular = invoiceInstallments
-      .filter((i) => i.kind !== "registration")
-      .sort((a, b) => (a.seq ?? 1) - (b.seq ?? 1));
 
     setEditingEnrollment(enrollment);
     setEditEnrollForm({
@@ -227,7 +209,6 @@ function ClassesPage() {
       discount: fromMinor(enrollment.discount_snapshot),
       registration_fee: fromMinor(registration?.amount ?? 0),
       reason: enrollment.discount_reason || "",
-      count: String(Math.max(1, regular.length || 1)),
     });
     setEditEnrollError(null);
   }
@@ -235,16 +216,12 @@ function ClassesPage() {
   function submitEnrollmentEdit() {
     if (!editingEnrollment) return;
     const invoice = db.invoices.find((i) => i.enrollment_id === editingEnrollment.id && i.status !== "cancelled");
-    const regular = invoice
-      ? db.installments
-          .filter((i) => i.invoice_id === invoice.id && i.kind !== "registration")
-          .sort((a, b) => (a.seq ?? 1) - (b.seq ?? 1))
-      : [];
-    const firstDueDate = regular[0]?.due_date;
+    const firstDueDate = invoice
+      ? db.installments.find((i) => i.invoice_id === invoice.id && i.kind !== "registration")?.due_date
+      : undefined;
     const { price, discount, installments } = buildInstallments(
       editEnrollForm.price,
       editEnrollForm.discount,
-      editEnrollForm.count,
       firstDueDate,
     );
     const registrationFee = toMinor(editEnrollForm.registration_fee);
@@ -489,9 +466,6 @@ function ClassesPage() {
           <Field label="سبب الخصم / ملاحظة">
             <Input value={enrollForm.reason} onChange={(e) => setEnrollForm({ ...enrollForm, reason: e.target.value })} />
           </Field>
-          <Field label="عدد الأقساط" hint="تُوزّع شهريًا بدءًا من اليوم">
-            <Input type="number" min={1} value={enrollForm.count} onChange={(e) => setEnrollForm({ ...enrollForm, count: e.target.value })} />
-          </Field>
           <p className="rounded-lg bg-muted p-3 text-sm">
             إجمالي المستحق: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount) + toMinor(enrollForm.registration_fee)), cur)}</b>
           </p>
@@ -583,14 +557,6 @@ function ClassesPage() {
           </Field>
           <Field label="سبب الخصم / ملاحظة">
             <Input value={editEnrollForm.reason} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, reason: e.target.value })} />
-          </Field>
-          <Field label="عدد الأقساط">
-            <Input
-              type="number"
-              min={1}
-              value={editEnrollForm.count}
-              onChange={(e) => setEditEnrollForm({ ...editEnrollForm, count: e.target.value })}
-            />
           </Field>
           <p className="rounded-lg bg-muted p-3 text-sm">
             إجمالي المستحق بعد التعديل: <b>{money(Math.max(0, toMinor(editEnrollForm.price) - toMinor(editEnrollForm.discount) + toMinor(editEnrollForm.registration_fee)), cur)}</b>
