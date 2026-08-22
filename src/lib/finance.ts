@@ -343,9 +343,11 @@ export function profitAndLoss(db: DB, from: string, to: string) {
   const tuition = db.payments.filter((p) => !p.is_void && inRange(p.paid_at)).reduce((s, p) => s + p.amount, 0);
   const otherIncome = db.incomes.filter((i) => !i.is_void && inRange(i.date)).reduce((s, i) => s + i.amount, 0);
   const expenses = db.expenses.filter((e) => !e.is_void && inRange(e.date)).reduce((s, e) => s + e.amount, 0);
+  // مصروف الراتب الحقيقي لا ينقص بسبب السلفة؛ السلفة دُفعت للموظف مسبقًا
+  // ثم تُخصم من صافي الراتب عند التسوية. لذلك نحسب: الصافي المدفوع + السلفة المخصومة.
   const payroll = db.payroll_items
     .filter((p) => p.status === "paid" && p.paid_at && inRange(p.paid_at))
-    .reduce((s, p) => s + p.net, 0);
+    .reduce((s, p) => s + p.net + p.advance_deducted, 0);
   const income = tuition + otherIncome;
   const cost = expenses + payroll;
   return { tuition, otherIncome, expenses, payroll, income, cost, net: income - cost };
