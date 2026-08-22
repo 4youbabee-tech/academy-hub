@@ -181,21 +181,6 @@ function SettingsPage() {
                   disabled={!canEdit}
                 />
               </Field>
-              <Field label="بادئة رقم الشهادة">
-                <Input
-                  value={settings.certificate_prefix}
-                  onChange={(e) => setSettings({ ...settings, certificate_prefix: e.target.value })}
-                  disabled={!canEdit}
-                />
-              </Field>
-              <Field label="التالي للشهادة">
-                <Input
-                  type="number"
-                  value={settings.certificate_next}
-                  onChange={(e) => setSettings({ ...settings, certificate_next: Number(e.target.value) || 1 })}
-                  disabled={!canEdit}
-                />
-              </Field>
             </div>
           </div>
         </div>
