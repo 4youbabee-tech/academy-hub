@@ -58,14 +58,18 @@ function ExpensesPage() {
     setError(null);
   }
 
-  const totalExp = expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
+  const totalOperatingExpenses = expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
+  const totalPaidPayroll = db.payroll_items
+    .filter((p) => p.status === "paid")
+    .reduce((s, p) => s + p.net, 0);
+  const totalCompanyExpenses = totalOperatingExpenses + totalPaidPayroll;
   const totalInc = incomes.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
 
   return (
     <div>
       <PageHeader
         title="المصاريف والمداخيل"
-        subtitle="لا حذف للسجلات المالية — الإلغاء فقط"
+        subtitle="المصاريف التشغيلية هنا، والرواتب تُجمع تلقائيًا ضمن إجمالي مصروفات الشركة"
         actions={
           canEdit ? (
             <Button
@@ -81,10 +85,15 @@ function ExpensesPage() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Stat label="إجمالي المصاريف" value={money(totalExp, cur)} tone="danger" />
-        <Stat label="إجمالي المداخيل الأخرى" value={money(totalInc, cur)} tone="success" />
-        <Stat label="الصافي" value={money(totalInc - totalExp, cur)} />
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="المصاريف التشغيلية" value={money(totalOperatingExpenses, cur)} tone="danger" />
+        <Stat label="الرواتب المدفوعة" value={money(totalPaidPayroll, cur)} tone="danger" />
+        <Stat label="إجمالي مصروفات الشركة" value={money(totalCompanyExpenses, cur)} tone="danger" />
+        <Stat label="المداخيل الأخرى" value={money(totalInc, cur)} tone="success" />
+      </div>
+
+      <div className="mb-4 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
+        الرواتب تُحسب ضمن إجمالي مصروفات الشركة تلقائيًا، لكنها لا تُسجّل مرة ثانية داخل جدول المصاريف حتى لا يتكرر المبلغ.
       </div>
 
       <div className="mb-4 flex gap-2">
