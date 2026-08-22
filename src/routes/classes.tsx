@@ -1,12 +1,17 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
 import { insert, update } from "@/lib/db";
-import { createEnrollmentWithInvoice } from "@/lib/finance";
+import {
+  cancelEnrollmentWithInvoice,
+  createEnrollmentWithInvoice,
+  invoiceBalance,
+  updateEnrollmentWithInvoice,
+} from "@/lib/finance";
 import { dateStr, fromMinor, money, today, toMinor, WEEKDAYS } from "@/lib/format";
-import type { Klass } from "@/lib/types";
+import type { Enrollment, Klass } from "@/lib/types";
 
 export const Route = createFileRoute("/classes")({
   head: () => ({
@@ -31,6 +36,15 @@ const EMPTY = {
   status: "planned" as Klass["status"],
 };
 
+const EMPTY_ENROLL = {
+  student_id: "",
+  price: "0",
+  discount: "0",
+  registration_fee: "0",
+  reason: "",
+  count: "1",
+};
+
 function ClassesPage() {
   const { db, actor, allowed } = useApp();
   const [open, setOpen] = useState(false);
@@ -40,15 +54,15 @@ function ClassesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [enrollFor, setEnrollFor] = useState<Klass | null>(null);
-  const [enrollForm, setEnrollForm] = useState({
-    student_id: "",
-    price: "0",
-    discount: "0",
-    registration_fee: "0", // ✅ جديد: رسوم التسجيل
-    reason: "",
-    count: "1",
-  });
+  const [enrollForm, setEnrollForm] = useState(EMPTY_ENROLL);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+
+  const [registrantsFor, setRegistrantsFor] = useState<Klass | null>(null);
+  const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
+  const [editEnrollForm, setEditEnrollForm] = useState(EMPTY_ENROLL);
+  const [editEnrollError, setEditEnrollError] = useState<string | null>(null);
+  const [cancelEnrollment, setCancelEnrollment] = useState<Enrollment | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -68,9 +82,15 @@ function ClassesPage() {
   const courseName = (id: string) => db.courses.find((c) => c.id === id)?.name ?? "—";
   const teacherName = (id: string | null) => db.employees.find((e) => e.id === id)?.full_name ?? "—";
 
+  const registrants = registrantsFor
+    ? db.enrollments
+        .filter((e) => e.class_id === registrantsFor.id && e.status !== "cancelled")
+        .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at))
+    : [];
+
   function openNew() {
     setEditing(null);
-    setForm({ ...EMPTY, course_id: db!.courses[0]?.id ?? "" });
+    setForm({ ...EMPTY, course_id: db.courses[0]?.id ?? "" });
     setSlots([]);
     setError(null);
     setOpen(true);
@@ -117,45 +137,57 @@ function ClassesPage() {
   }
 
   function openEnroll(k: Klass) {
-    const course = db!.courses.find((c) => c.id === k.course_id);
+    const course = db.courses.find((c) => c.id === k.course_id);
     setEnrollFor(k);
     setEnrollForm({
       student_id: "",
       price: fromMinor(course?.default_price ?? 0),
       discount: "0",
-      registration_fee: "0", // ✅ جديد
+      registration_fee: "0",
       reason: "",
       count: "1",
     });
     setEnrollError(null);
   }
 
+  function buildInstallments(priceText: string, discountText: string, countText: string, firstDueDate?: string) {
+    const price = toMinor(priceText);
+    const discount = toMinor(discountText);
+    const tuition = Math.max(0, price - discount);
+    const n = Math.max(1, Number(countText) || 1);
+    const per = n > 0 ? Math.floor(tuition / n) : 0;
+    const baseDate = firstDueDate ? new Date(`${firstDueDate}T12:00:00`) : new Date();
+
+    const installments = tuition > 0
+      ? Array.from({ length: n }, (_, i) => {
+          const d = new Date(baseDate);
+          d.setMonth(d.getMonth() + i);
+          return {
+            due_date: d.toISOString().slice(0, 10),
+            amount: i === n - 1 ? tuition - per * (n - 1) : per,
+          };
+        })
+      : [];
+
+    return { price, discount, tuition, installments };
+  }
+
   function submitEnroll() {
     if (!enrollFor) return;
     if (!enrollForm.student_id) return setEnrollError("اختر الطالب");
-    const exists = db!.enrollments.some(
+    const exists = db.enrollments.some(
       (e) => e.class_id === enrollFor.id && e.student_id === enrollForm.student_id && e.status === "active",
     );
     if (exists) return setEnrollError("الطالب مسجّل مسبقًا في هذا الصف");
     const used = counts.get(enrollFor.id) ?? 0;
     if (enrollFor.capacity > 0 && used >= enrollFor.capacity) return setEnrollError("الصف مكتمل العدد");
 
-    // حساب صافي قيمة الدورة ورسوم التسجيل بشكل منفصل
-    const price = toMinor(enrollForm.price);
-    const discount = toMinor(enrollForm.discount);
+    const { price, discount, installments } = buildInstallments(
+      enrollForm.price,
+      enrollForm.discount,
+      enrollForm.count,
+    );
     const registrationFee = toMinor(enrollForm.registration_fee);
-    const tuition = Math.max(0, price - discount);
-
-    const n = Math.max(1, Number(enrollForm.count) || 1);
-    const per = n > 0 ? Math.floor(tuition / n) : 0;
-    const installments = tuition > 0
-      ? Array.from({ length: n }, (_, i) => {
-          const d = new Date();
-          d.setMonth(d.getMonth() + i);
-          return { due_date: d.toISOString().slice(0, 10), amount: i === n - 1 ? tuition - per * (n - 1) : per };
-        })
-      : [];
-
     const reasonText = enrollForm.reason.trim();
     const feeNote = registrationFee > 0 ? ` (رسوم تسجيل ${money(registrationFee, cur)})` : "";
     const finalReason = reasonText ? `${reasonText}${feeNote}` : feeNote.trim() || "تسجيل جديد";
@@ -173,11 +205,77 @@ function ClassesPage() {
         },
         actor,
       );
-
       setEnrollFor(null);
       setEnrollError(null);
     } catch (e) {
       setEnrollError((e as Error).message);
+    }
+  }
+
+  function openEnrollmentEdit(enrollment: Enrollment) {
+    const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
+    const invoiceInstallments = invoice ? db.installments.filter((i) => i.invoice_id === invoice.id) : [];
+    const registration = invoiceInstallments.find((i) => i.kind === "registration");
+    const regular = invoiceInstallments
+      .filter((i) => i.kind !== "registration")
+      .sort((a, b) => (a.seq ?? 1) - (b.seq ?? 1));
+
+    setEditingEnrollment(enrollment);
+    setEditEnrollForm({
+      student_id: enrollment.student_id,
+      price: fromMinor(enrollment.price_snapshot),
+      discount: fromMinor(enrollment.discount_snapshot),
+      registration_fee: fromMinor(registration?.amount ?? 0),
+      reason: enrollment.discount_reason || "",
+      count: String(Math.max(1, regular.length || 1)),
+    });
+    setEditEnrollError(null);
+  }
+
+  function submitEnrollmentEdit() {
+    if (!editingEnrollment) return;
+    const invoice = db.invoices.find((i) => i.enrollment_id === editingEnrollment.id && i.status !== "cancelled");
+    const regular = invoice
+      ? db.installments
+          .filter((i) => i.invoice_id === invoice.id && i.kind !== "registration")
+          .sort((a, b) => (a.seq ?? 1) - (b.seq ?? 1))
+      : [];
+    const firstDueDate = regular[0]?.due_date;
+    const { price, discount, installments } = buildInstallments(
+      editEnrollForm.price,
+      editEnrollForm.discount,
+      editEnrollForm.count,
+      firstDueDate,
+    );
+    const registrationFee = toMinor(editEnrollForm.registration_fee);
+
+    try {
+      updateEnrollmentWithInvoice(
+        {
+          enrollment_id: editingEnrollment.id,
+          price,
+          discount,
+          registration_fee: registrationFee,
+          discount_reason: editEnrollForm.reason.trim() || "تسجيل",
+          installments,
+        },
+        actor,
+      );
+      setEditingEnrollment(null);
+      setEditEnrollError(null);
+    } catch (e) {
+      setEditEnrollError((e as Error).message);
+    }
+  }
+
+  function submitCancelEnrollment() {
+    if (!cancelEnrollment) return;
+    try {
+      cancelEnrollmentWithInvoice(cancelEnrollment.id, actor);
+      setCancelEnrollment(null);
+      setCancelError(null);
+    } catch (e) {
+      setCancelError((e as Error).message);
     }
   }
 
@@ -210,7 +308,16 @@ function ClassesPage() {
                 </Badge>
               </Td>
               <Td>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setRegistrantsFor(k);
+                      setCancelError(null);
+                    }}
+                  >
+                    المسجّلون
+                  </Button>
                   {canEnroll ? (
                     <Button variant="ghost" onClick={() => openEnroll(k)}>
                       تسجيل طالب
@@ -218,7 +325,7 @@ function ClassesPage() {
                   ) : null}
                   {canEdit ? (
                     <Button variant="ghost" onClick={() => openEdit(k)}>
-                      تعديل
+                      تعديل الصف
                     </Button>
                   ) : null}
                 </div>
@@ -261,17 +368,10 @@ function ClassesPage() {
             <Input value={form.term} onChange={(e) => setForm({ ...form, term: e.target.value })} />
           </Field>
           <Field label="السعة">
-            <Input
-              type="number"
-              value={form.capacity}
-              onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-            />
+            <Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
           </Field>
           <Field label="الحالة">
-            <Select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value as Klass["status"] })}
-            >
+            <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Klass["status"] })}>
               <option value="planned">مخطط</option>
               <option value="running">جارٍ</option>
               <option value="finished">منتهٍ</option>
@@ -356,17 +456,10 @@ function ClassesPage() {
         </div>
       </Modal>
 
-      <Modal
-        open={!!enrollFor}
-        title={`تسجيل طالب — ${enrollFor?.name ?? ""}`}
-        onClose={() => setEnrollFor(null)}
-      >
+      <Modal open={!!enrollFor} title={`تسجيل طالب — ${enrollFor?.name ?? ""}`} onClose={() => setEnrollFor(null)}>
         <div className="space-y-3">
           <Field label="الطالب">
-            <Select
-              value={enrollForm.student_id}
-              onChange={(e) => setEnrollForm({ ...enrollForm, student_id: e.target.value })}
-            >
+            <Select value={enrollForm.student_id} onChange={(e) => setEnrollForm({ ...enrollForm, student_id: e.target.value })}>
               <option value="">— اختر —</option>
               {db.students
                 .filter((s) => s.status === "active")
@@ -382,14 +475,10 @@ function ClassesPage() {
               <Input value={enrollForm.price} onChange={(e) => setEnrollForm({ ...enrollForm, price: e.target.value })} />
             </Field>
             <Field label={`الخصم (${cur})`}>
-              <Input
-                value={enrollForm.discount}
-                onChange={(e) => setEnrollForm({ ...enrollForm, discount: e.target.value })}
-              />
+              <Input value={enrollForm.discount} onChange={(e) => setEnrollForm({ ...enrollForm, discount: e.target.value })} />
             </Field>
           </div>
-          {/* ✅ جديد: حقل رسوم التسجيل */}
-          <Field label={`رسوم التسجيل (${cur})`} hint="تُضاف إلى إجمالي الفاتورة">
+          <Field label={`رسوم التسجيل (${cur})`} hint="تُضاف إلى إجمالي المستحق ولا تُعتبر مقبوضة إلا عند إصدار سند قبض">
             <Input
               type="number"
               step="0.01"
@@ -397,19 +486,14 @@ function ClassesPage() {
               onChange={(e) => setEnrollForm({ ...enrollForm, registration_fee: e.target.value })}
             />
           </Field>
-          <Field label="سبب الخصم">
+          <Field label="سبب الخصم / ملاحظة">
             <Input value={enrollForm.reason} onChange={(e) => setEnrollForm({ ...enrollForm, reason: e.target.value })} />
           </Field>
           <Field label="عدد الأقساط" hint="تُوزّع شهريًا بدءًا من اليوم">
-            <Input
-              type="number"
-              min={1}
-              value={enrollForm.count}
-              onChange={(e) => setEnrollForm({ ...enrollForm, count: e.target.value })}
-            />
+            <Input type="number" min={1} value={enrollForm.count} onChange={(e) => setEnrollForm({ ...enrollForm, count: e.target.value })} />
           </Field>
           <p className="rounded-lg bg-muted p-3 text-sm">
-            الصافي: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount) + toMinor(enrollForm.registration_fee)), cur)}</b>
+            إجمالي المستحق: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount) + toMinor(enrollForm.registration_fee)), cur)}</b>
           </p>
           {enrollError ? <p className="text-sm font-semibold text-destructive">{enrollError}</p> : null}
           <div className="flex justify-end gap-2">
@@ -417,6 +501,129 @@ function ClassesPage() {
               إلغاء
             </Button>
             <Button onClick={submitEnroll}>تسجيل وإصدار فاتورة</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!registrantsFor} title={`المسجّلون — ${registrantsFor?.name ?? ""}`} onClose={() => setRegistrantsFor(null)} wide>
+        {registrants.length ? (
+          <Table head={["الطالب", "تاريخ التسجيل", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
+            {registrants.map((enrollment) => {
+              const student = db.students.find((s) => s.id === enrollment.student_id);
+              const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
+              const remaining = invoice ? invoiceBalance(db, invoice.id) : 0;
+              const total = invoice?.total ?? 0;
+              const paid = Math.max(0, total - remaining);
+              return (
+                <tr key={enrollment.id}>
+                  <Td>
+                    <Link to="/students/$id" params={{ id: enrollment.student_id }} className="font-semibold text-primary hover:underline">
+                      {student?.full_name || "—"}
+                    </Link>
+                  </Td>
+                  <Td>{dateStr(enrollment.enrolled_at)}</Td>
+                  <Td className="tabular-nums">{money(total, cur)}</Td>
+                  <Td className="tabular-nums">{money(paid, cur)}</Td>
+                  <Td className={remaining > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(remaining, cur)}</Td>
+                  <Td>
+                    <Badge tone={enrollment.status === "active" ? "success" : "muted"}>
+                      {enrollment.status === "active" ? "نشط" : enrollment.status === "completed" ? "منتهٍ" : enrollment.status === "withdrawn" ? "منسحب" : "ملغى"}
+                    </Badge>
+                  </Td>
+                  <Td>
+                    {canEnroll && enrollment.status === "active" ? (
+                      <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
+                          تعديل التسجيل
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setCancelEnrollment(enrollment);
+                            setCancelError(null);
+                          }}
+                        >
+                          إلغاء التسجيل
+                        </Button>
+                      </div>
+                    ) : null}
+                  </Td>
+                </tr>
+              );
+            })}
+          </Table>
+        ) : (
+          <Empty text="لا يوجد طلاب مسجلون في هذا الصف." />
+        )}
+      </Modal>
+
+      <Modal open={!!editingEnrollment} title="تعديل تسجيل الطالب" onClose={() => setEditingEnrollment(null)}>
+        <div className="space-y-3">
+          <Field label="الطالب">
+            <Input
+              value={db.students.find((s) => s.id === editingEnrollment?.student_id)?.full_name || "—"}
+              disabled
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={`سعر الدورة (${cur})`}>
+              <Input value={editEnrollForm.price} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, price: e.target.value })} />
+            </Field>
+            <Field label={`الخصم (${cur})`}>
+              <Input value={editEnrollForm.discount} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, discount: e.target.value })} />
+            </Field>
+          </div>
+          <Field label={`رسوم التسجيل (${cur})`}>
+            <Input
+              type="number"
+              step="0.01"
+              value={editEnrollForm.registration_fee}
+              onChange={(e) => setEditEnrollForm({ ...editEnrollForm, registration_fee: e.target.value })}
+            />
+          </Field>
+          <Field label="سبب الخصم / ملاحظة">
+            <Input value={editEnrollForm.reason} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, reason: e.target.value })} />
+          </Field>
+          <Field label="عدد الأقساط">
+            <Input
+              type="number"
+              min={1}
+              value={editEnrollForm.count}
+              onChange={(e) => setEditEnrollForm({ ...editEnrollForm, count: e.target.value })}
+            />
+          </Field>
+          <p className="rounded-lg bg-muted p-3 text-sm">
+            إجمالي المستحق بعد التعديل: <b>{money(Math.max(0, toMinor(editEnrollForm.price) - toMinor(editEnrollForm.discount) + toMinor(editEnrollForm.registration_fee)), cur)}</b>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            إذا كان على هذا التسجيل سند قبض فعلي، سيمنع النظام تعديل القيم لحماية الحسابات.
+          </p>
+          {editEnrollError ? <p className="text-sm font-semibold text-destructive">{editEnrollError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setEditingEnrollment(null)}>
+              إلغاء
+            </Button>
+            <Button onClick={submitEnrollmentEdit}>حفظ التعديل</Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!cancelEnrollment} title="إلغاء تسجيل الطالب" onClose={() => setCancelEnrollment(null)}>
+        <div className="space-y-3">
+          <p className="text-sm">
+            هل تريد إلغاء تسجيل <b>{db.students.find((s) => s.id === cancelEnrollment?.student_id)?.full_name || "الطالب"}</b>؟
+          </p>
+          <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+            إذا كان على التسجيل سند قبض فعلي، سيمنع النظام الإلغاء إلى أن يتم إلغاء السند المالي أولًا.
+          </p>
+          {cancelError ? <p className="text-sm font-semibold text-destructive">{cancelError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setCancelEnrollment(null)}>
+              تراجع
+            </Button>
+            <Button variant="danger" onClick={submitCancelEnrollment}>
+              تأكيد إلغاء التسجيل
+            </Button>
           </div>
         </div>
       </Modal>
