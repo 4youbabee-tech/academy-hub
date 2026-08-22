@@ -4,7 +4,7 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Button, Empty, Field, Input, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
 import { invoiceBalance, profitAndLoss } from "@/lib/finance";
-import { money, today } from "@/lib/format";
+import { fromMinor, money, today } from "@/lib/format";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -56,35 +56,39 @@ function ReportsPage() {
     let headers: string[] = [];
     let rows: string[][] = [];
 
+    const csvCell = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+    const amount = (minor: number) => fromMinor(minor);
+
     if (type === "profit" && profitData) {
-      headers = ["البيان", "القيمة"];
+      headers = ["البيان", `القيمة (${cur})`];
       rows = [
-        ["مقبوضات الطلاب", String(profitData.tuition)],
-        ["مداخيل أخرى", String(profitData.otherIncome)],
-        ["إجمالي الإيرادات", String(profitData.income)],
-        ["المصاريف التشغيلية", String(profitData.expenses)],
-        ["الرواتب المدفوعة", String(profitData.payroll)],
-        ["إجمالي مصروفات الشركة", String(profitData.cost)],
-        ["صافي الربح/الخسارة", String(profitData.net)],
+        ["مقبوضات الطلاب", amount(profitData.tuition)],
+        ["مداخيل أخرى", amount(profitData.otherIncome)],
+        ["إجمالي الإيرادات", amount(profitData.income)],
+        ["المصاريف التشغيلية", amount(profitData.expenses)],
+        ["الرواتب المدفوعة", amount(profitData.payroll)],
+        ["إجمالي مصروفات الشركة", amount(profitData.cost)],
+        ["صافي الربح/الخسارة", amount(profitData.net)],
       ];
     } else if (type === "balances") {
-      headers = ["الطالب", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي"];
+      headers = ["الطالب", "الدورة / الصف", `إجمالي المستحق (${cur})`, `المقبوض (${cur})`, `المتبقي (${cur})`];
       rows = balances.map((row) => [
         row.student?.full_name || "—",
         row.course?.name ? `${row.course.name}${row.klass ? ` — ${row.klass.name}` : ""}` : "—",
-        String(row.inv.total),
-        String(row.paid),
-        String(row.due),
+        amount(row.inv.total),
+        amount(row.paid),
+        amount(row.due),
       ]);
     }
 
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csv = [headers, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
+    link.href = url;
     link.download = `${type}_report_${from}_to_${to}.csv`;
     link.click();
-    URL.revokeObjectURL(link.href);
+    URL.revokeObjectURL(url);
   }
 
   const totalStudentDue = balances.reduce((sum, row) => sum + row.due, 0);
