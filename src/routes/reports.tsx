@@ -1,22 +1,22 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Button, Empty, Field, Input, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { overdueInstallments, profitAndLoss } from "@/lib/finance";
-import { dateStr, money, today } from "@/lib/format";
+import { invoiceBalance, profitAndLoss } from "@/lib/finance";
+import { money, today } from "@/lib/format";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
     meta: [
       { title: "التقارير — نظام إدارة المعهد" },
-      { name: "description", content: "التقارير المالية، المقبوضات، المصروفات، الرواتب، والمتأخرات." },
+      { name: "description", content: "التقارير المالية، المقبوضات، المصروفات، الرواتب، وأرصدة الطلاب." },
     ],
   }),
   component: ReportsPage,
 });
 
-type ReportType = "profit" | "arrears";
+type ReportType = "profit" | "balances";
 
 function ReportsPage() {
   const { db, allowed } = useApp();
@@ -34,18 +34,22 @@ function ReportsPage() {
     return profitAndLoss(db, from, to);
   }, [db, from, to, type]);
 
-  const arrears = useMemo(() => {
-    if (type !== "arrears") return [];
-    const overdue = overdueInstallments(db);
-    return overdue.map((ins) => {
-      const inv = db.invoices.find((i) => i.id === ins.invoice_id);
-      const student = db.students.find((s) => s.id === inv?.student_id);
-      return {
-        student: student?.full_name || "—",
-        amount: ins.amount,
-        due: ins.due_date,
-      };
-    });
+  const balances = useMemo(() => {
+    if (type !== "balances") return [];
+
+    return db.invoices
+      .filter((inv) => inv.status !== "cancelled")
+      .map((inv) => {
+        const student = db.students.find((s) => s.id === inv.student_id);
+        const enrollment = db.enrollments.find((e) => e.id === inv.enrollment_id);
+        const klass = db.classes.find((k) => k.id === enrollment?.class_id);
+        const course = db.courses.find((c) => c.id === klass?.course_id);
+        const due = Math.max(0, invoiceBalance(db, inv.id));
+        const paid = Math.max(0, inv.total - due);
+        return { inv, student, klass, course, paid, due };
+      })
+      .filter((row) => row.due > 0)
+      .sort((a, b) => b.due - a.due);
   }, [db, type]);
 
   function exportCSV() {
@@ -63,9 +67,15 @@ function ReportsPage() {
         ["إجمالي مصروفات الشركة", String(profitData.cost)],
         ["صافي الربح/الخسارة", String(profitData.net)],
       ];
-    } else if (type === "arrears") {
-      headers = ["الطالب", "المبلغ المتأخر", "تاريخ الاستحقاق"];
-      rows = arrears.map((a) => [a.student, String(a.amount), a.due]);
+    } else if (type === "balances") {
+      headers = ["الطالب", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي"];
+      rows = balances.map((row) => [
+        row.student?.full_name || "—",
+        row.course?.name ? `${row.course.name}${row.klass ? ` — ${row.klass.name}` : ""}` : "—",
+        String(row.inv.total),
+        String(row.paid),
+        String(row.due),
+      ]);
     }
 
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -77,11 +87,14 @@ function ReportsPage() {
     URL.revokeObjectURL(link.href);
   }
 
+  const totalStudentDue = balances.reduce((sum, row) => sum + row.due, 0);
+  const totalStudentPaid = balances.reduce((sum, row) => sum + row.paid, 0);
+
   return (
     <div>
       <PageHeader
         title="التقارير"
-        subtitle="تقارير مالية واضحة مع إمكانية التصدير إلى CSV"
+        subtitle="تقارير مالية واضحة ومباشرة"
         actions={<Button onClick={exportCSV}>📥 تصدير CSV</Button>}
       />
 
@@ -90,15 +103,19 @@ function ReportsPage() {
           <Field label="نوع التقرير">
             <Select value={type} onChange={(e) => setType(e.target.value as ReportType)} className="min-w-40">
               <option value="profit">الربح والخسارة</option>
-              <option value="arrears">المتأخرات</option>
+              <option value="balances">أرصدة الطلاب</option>
             </Select>
           </Field>
-          <Field label="من تاريخ">
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </Field>
-          <Field label="إلى تاريخ">
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </Field>
+          {type === "profit" ? (
+            <>
+              <Field label="من تاريخ">
+                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </Field>
+              <Field label="إلى تاريخ">
+                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              </Field>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -145,20 +162,32 @@ function ReportsPage() {
         </div>
       ) : null}
 
-      {type === "arrears" ? (
+      {type === "balances" ? (
         <div>
-          <p className="mb-3 text-sm text-muted-foreground">
-            إجمالي المتأخرات: {money(arrears.reduce((sum, item) => sum + item.amount, 0), cur)}
-          </p>
-          {arrears.length === 0 ? (
-            <Empty text="لا توجد متأخرات." />
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <Stat label="عدد الفواتير التي عليها رصيد" value={String(balances.length)} />
+            <Stat label="المقبوض منها" value={money(totalStudentPaid, cur)} tone="success" />
+            <Stat label="إجمالي المتبقي على الطلاب" value={money(totalStudentDue, cur)} tone="danger" />
+          </div>
+
+          {balances.length === 0 ? (
+            <Empty text="لا توجد أرصدة متبقية على الطلاب." />
           ) : (
-            <Table head={["الطالب", "المبلغ المتأخر", "تاريخ الاستحقاق"]}>
-              {arrears.map((item, index) => (
-                <tr key={`${item.student}-${item.due}-${index}`}>
-                  <Td className="font-semibold">{item.student}</Td>
-                  <Td className="text-destructive tabular-nums">{money(item.amount, cur)}</Td>
-                  <Td>{dateStr(item.due)}</Td>
+            <Table head={["الطالب", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", ""]}>
+              {balances.map((row) => (
+                <tr key={row.inv.id}>
+                  <Td className="font-semibold">{row.student?.full_name || "—"}</Td>
+                  <Td>{row.course?.name ? `${row.course.name}${row.klass ? ` — ${row.klass.name}` : ""}` : "—"}</Td>
+                  <Td className="tabular-nums">{money(row.inv.total, cur)}</Td>
+                  <Td className="tabular-nums text-emerald-700">{money(row.paid, cur)}</Td>
+                  <Td className="tabular-nums text-destructive">{money(row.due, cur)}</Td>
+                  <Td>
+                    {row.student ? (
+                      <Link to="/students/$id" params={{ id: row.student.id }} className="text-primary hover:underline">
+                        فتح الطالب
+                      </Link>
+                    ) : null}
+                  </Td>
                 </tr>
               ))}
             </Table>
