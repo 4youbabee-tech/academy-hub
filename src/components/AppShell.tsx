@@ -5,7 +5,7 @@ import { Button, Input, Panel } from "@/components/ui-kit";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
-const NAV: { group: string; items: { to: string; label: string; perm: string }[] }[] = [
+const NAV = [
   {
     group: "الرئيسية",
     items: [{ to: "/", label: "لوحة المعلومات", perm: "students.view" }],
@@ -37,7 +37,7 @@ const NAV: { group: string; items: { to: string; label: string; perm: string }[]
       { to: "/backup", label: "النسخ الاحتياطي", perm: "backup.view" },
     ],
   },
-];
+] as const;
 
 function LoginScreen() {
   const { login } = useApp();
@@ -118,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   {items.map((item) => (
                     <Link
                       key={item.to}
-                      to={item.to as never}
+                      to={item.to}
                       onClick={() => setOpen(false)}
                       className={cn(
                         "block rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent",
