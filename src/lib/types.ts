@@ -1,4 +1,4 @@
-// Domain types. Money is stored in minor units (integers) everywhere.
+/ Domain types. Money is stored in minor units (integers) everywhere.
 
 export type ID = string;
 
@@ -53,7 +53,8 @@ export interface Student extends Base {
   guardian_phone: string;
   address: string;
   education_level: "ابتدائي" | "متوسط" | "ثانوي" | "جامعي" | "" | null;
-  status: "active" | "inactive" | "graduated";
+  status: "active" | "inactive" | "graduated" | "archived";
+  archived_at?: string | null;
   notes: string;
 }
 
