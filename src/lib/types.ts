@@ -22,15 +22,8 @@ export interface Settings {
   academic_year: string;
   receipt_prefix: string;
   receipt_next: number;
-  certificate_prefix: string;
-  certificate_next: number;
   student_code_prefix: string;
   student_code_next: number;
-  grading: {
-    pass_mark: number; // percentage
-    weights: { final: number; midterm: number; quiz: number; attendance: number };
-  };
-  // ✅ جديد: إعدادات الإيصالات
   receipt_show_logo: boolean;
   receipt_paper_size: "A4" | "A5";
   receipt_show_payment_method: boolean;
@@ -95,39 +88,6 @@ export interface Enrollment extends Base {
   status: "active" | "completed" | "withdrawn" | "cancelled";
 }
 
-export interface Attendance extends Base {
-  enrollment_id: ID;
-  class_id: ID;
-  date: string;
-  status: "present" | "absent" | "late" | "excused";
-  note: string;
-  recorded_by: ID | null;
-}
-
-export interface Exam extends Base {
-  class_id: ID;
-  title: string;
-  type: "final" | "midterm" | "quiz" | "other";
-  max_score: number;
-  weight_snapshot: number; // percentage
-  date: string;
-}
-
-export interface Grade extends Base {
-  exam_id: ID;
-  enrollment_id: ID;
-  score: number;
-  entered_by: ID | null;
-}
-
-export interface GradeRevision extends Base {
-  grade_id: ID;
-  old_score: number;
-  new_score: number;
-  reason: string;
-  user_id: ID | null;
-}
-
 export interface Invoice extends Base {
   number: string;
   enrollment_id: ID;
@@ -159,7 +119,7 @@ export interface Payment extends Base {
   is_void: boolean;
   void_reason: string;
   user_id: ID | null;
-  note?: string; // ✅ إضافة حقل اختياري للملاحظات على الدفعة
+  note?: string;
 }
 
 export interface Employee extends Base {
@@ -210,16 +170,6 @@ export interface Income extends Base {
   is_void: boolean;
 }
 
-export interface Certificate extends Base {
-  serial: string;
-  student_id: ID;
-  enrollment_id: ID | null;
-  type: "success" | "completion" | "attendance";
-  issued_at: string;
-  verification_token: string;
-  note: string;
-}
-
 export interface AuditEntry extends Base {
   user_id: ID | null;
   user_name: string;
@@ -239,10 +189,6 @@ export interface DB {
   courses: Course[];
   classes: Klass[];
   enrollments: Enrollment[];
-  attendance: Attendance[];
-  exams: Exam[];
-  grades: Grade[];
-  grade_revisions: GradeRevision[];
   invoices: Invoice[];
   installments: Installment[];
   payments: Payment[];
@@ -251,7 +197,6 @@ export interface DB {
   advances: Advance[];
   expenses: Expense[];
   incomes: Income[];
-  certificates: Certificate[];
   audit_log: AuditEntry[];
 }
 
