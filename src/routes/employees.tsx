@@ -5,7 +5,7 @@ import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
 import { insert, transact, audit, baseFields, update } from "@/lib/db";
 import { dateStr, fromMinor, money, toMinor, today } from "@/lib/format";
-import type { Employee } from "@/lib/types";
+import type { Employee, PayrollItem } from "@/lib/types";
 
 export const Route = createFileRoute("/employees")({
   head: () => ({
@@ -23,6 +23,16 @@ export const Route = createFileRoute("/employees")({
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[ch] || ch);
 }
 
 function EmployeesPage() {
@@ -102,6 +112,74 @@ function EmployeesPage() {
     insert("advances", { employee_id: advFor, amount, date: today(), reason: adv.reason, settled: false }, actor, "سلفة موظف");
     setAdvFor(null);
     setAdv({ amount: "", reason: "" });
+  }
+
+  function printSalaryReceipt(item: PayrollItem) {
+    if (item.status !== "paid" || !item.paid_at) return;
+
+    const employee = db.employees.find((e) => e.id === item.employee_id);
+    const settings = db.settings;
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    const monthLabel = item.period || "—";
+    const employeeName = employee?.full_name || "—";
+    const jobTitle = employee?.job_title || (employee?.kind === "teacher" ? "مدرّس" : "موظف");
+    const totalDeductions = item.deduction + item.advance_deducted;
+
+    win.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <title>سند صرف راتب - ${escapeHtml(employeeName)}</title>
+  <style>
+    @page { size: A5; margin: 8mm; }
+    body { font-family: Arial, sans-serif; direction: rtl; margin: 0; padding: 10px; color: #111; background: #fff; }
+    .slip { max-width: 148mm; margin: auto; border: 1px solid #d6d6d6; border-radius: 10px; padding: 16px; }
+    .header { text-align: center; border-bottom: 2px solid #1f6b5c; padding-bottom: 10px; margin-bottom: 12px; }
+    .logo { max-height: 64px; max-width: 150px; margin-bottom: 6px; }
+    .institute { font-size: 20px; font-weight: 800; }
+    .muted { font-size: 12px; color: #666; }
+    .title { margin-top: 7px; font-size: 16px; font-weight: 800; }
+    .row { display: flex; justify-content: space-between; gap: 14px; padding: 6px 0; border-bottom: 1px dashed #e5e5e5; font-size: 13px; }
+    .row b { text-align: left; }
+    .net { margin-top: 12px; padding: 10px; border: 1px solid #dfe8e5; border-radius: 8px; font-size: 18px; font-weight: 800; display: flex; justify-content: space-between; }
+    .signatures { display: flex; justify-content: space-between; gap: 20px; margin-top: 30px; font-size: 12px; }
+    .footer { margin-top: 18px; text-align: center; font-size: 11px; color: #777; border-top: 1px solid #eee; padding-top: 8px; }
+    @media print { body { padding: 0; } .slip { border: none; } }
+  </style>
+</head>
+<body>
+  <div class="slip">
+    <div class="header">
+      ${settings.logo_data_url ? `<img class="logo" src="${settings.logo_data_url}" alt="شعار المعهد" />` : ""}
+      <div class="institute">${escapeHtml(settings.institute_name)}</div>
+      ${settings.address ? `<div class="muted">${escapeHtml(settings.address)}</div>` : ""}
+      ${settings.phone ? `<div class="muted">${escapeHtml(settings.phone)}</div>` : ""}
+      <div class="title">سند صرف راتب</div>
+    </div>
+
+    <div class="row"><span>الموظف</span><b>${escapeHtml(employeeName)}</b></div>
+    <div class="row"><span>المسمى الوظيفي</span><b>${escapeHtml(jobTitle)}</b></div>
+    <div class="row"><span>شهر الراتب</span><b>${escapeHtml(monthLabel)}</b></div>
+    <div class="row"><span>تاريخ الدفع</span><b>${escapeHtml(dateStr(item.paid_at))}</b></div>
+    <div class="row"><span>الراتب الأساسي</span><b>${escapeHtml(money(item.base_snapshot, cur))}</b></div>
+    <div class="row"><span>الإضافات</span><b>${escapeHtml(money(item.bonus, cur))}</b></div>
+    <div class="row"><span>الحسميات</span><b>${escapeHtml(money(item.deduction, cur))}</b></div>
+    <div class="row"><span>خصم السلف</span><b>${escapeHtml(money(item.advance_deducted, cur))}</b></div>
+    <div class="row"><span>إجمالي الحسميات</span><b>${escapeHtml(money(totalDeductions, cur))}</b></div>
+    <div class="net"><span>الصافي المدفوع</span><span>${escapeHtml(money(item.net, cur))}</span></div>
+
+    <div class="signatures">
+      <span>توقيع الموظف: ......................</span>
+      <span>توقيع الإدارة: ......................</span>
+    </div>
+    <div class="footer">سند صرف راتب صادر من نظام ${escapeHtml(settings.institute_name)}</div>
+  </div>
+  <script>setTimeout(function () { window.print(); }, 350);<\/script>
+</body>
+</html>`);
+    win.document.close();
   }
 
   const totalNet = items.reduce((s, i) => s + i.net, 0);
@@ -190,11 +268,18 @@ function EmployeesPage() {
               <Td>{i.status === "paid" ? <Badge tone="success">مدفوع</Badge> : <Badge tone="warning">مسودة</Badge>}</Td>
               <Td>{i.paid_at ? dateStr(i.paid_at) : "—"}</Td>
               <Td>
-                {i.status !== "paid" && canEdit ? (
-                  <Button variant="secondary" onClick={() => payItem(i.id)}>
-                    دفع
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap gap-1">
+                  {i.status !== "paid" && canEdit ? (
+                    <Button variant="secondary" onClick={() => payItem(i.id)}>
+                      دفع
+                    </Button>
+                  ) : null}
+                  {i.status === "paid" ? (
+                    <Button variant="ghost" onClick={() => printSalaryReceipt(i)}>
+                      🖨️ طباعة سند
+                    </Button>
+                  ) : null}
+                </div>
               </Td>
             </tr>
           ))}
