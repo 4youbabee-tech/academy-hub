@@ -21,8 +21,7 @@ const NAV = [
   {
     group: "المالية",
     items: [
-      { to: "/finance", label: "الفواتير والدفعات", perm: "finance.view" },
-      { to: "/receipts", label: "الإيصالات", perm: "finance.view" },
+      { to: "/receipts", label: "الإيصالات والفواتير", perm: "finance.view" },
       { to: "/expenses", label: "المصاريف والمداخيل", perm: "expenses.view" },
       { to: "/employees", label: "الموظفون والرواتب", perm: "payroll.view" },
       { to: "/reports", label: "التقارير", perm: "reports.view" },
