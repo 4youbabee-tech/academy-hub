@@ -26,7 +26,7 @@ const EMPTY = {
   guardian_name: "",
   guardian_phone: "",
   address: "",
-  education_level: "" as Student["education_level"],
+  education_level: "" as Student["education_level"], // ✅ جديد
   status: "active" as Student["status"],
   notes: "",
 };
@@ -76,7 +76,7 @@ function StudentsPage() {
       guardian_name: s.guardian_name,
       guardian_phone: s.guardian_phone,
       address: s.address,
-      education_level: s.education_level || "",
+      education_level: s.education_level || "", // ✅ جديد
       status: s.status,
       notes: s.notes,
     });
@@ -94,7 +94,7 @@ function StudentsPage() {
           {
             ...form,
             birth_date: form.birth_date || null,
-            education_level: form.education_level || null,
+            education_level: form.education_level || null, // ✅ جديد
           },
           actor,
           `تعديل الطالب ${form.full_name}`,
@@ -110,7 +110,7 @@ function StudentsPage() {
             ...form,
             code,
             birth_date: form.birth_date || null,
-            education_level: form.education_level || null,
+            education_level: form.education_level || null, // ✅ جديد
           },
           actor,
           `إضافة الطالب ${form.full_name}`,
@@ -146,12 +146,16 @@ function StudentsPage() {
         <Table head={["الرمز", "الاسم", "المستوى", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
           {rows.map((s) => {
             const bal = studentBalance(db, s.id);
-            const activeEnrollments = db.enrollments.filter((e) => e.student_id === s.id && e.status === "active");
-            const labels = activeEnrollments.map((e) => {
+            const activeEnrollments = db.enrollments.filter(
+              (e) => e.student_id === s.id && e.status === "active",
+            );
+            const enrollmentLabels = activeEnrollments.map((e) => {
               const klass = db.classes.find((k) => k.id === e.class_id);
               const course = db.courses.find((c) => c.id === klass?.course_id);
-              return course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : klass?.name || "—";
+              if (course?.name && klass?.name) return `${course.name} — ${klass.name}`;
+              return course?.name || klass?.name || "—";
             });
+
             return (
               <tr key={s.id}>
                 <Td className="tabular-nums">{s.code}</Td>
@@ -161,16 +165,24 @@ function StudentsPage() {
                   </Link>
                 </Td>
                 <Td>{s.education_level || "—"}</Td>
-                <Td className="text-xs">{labels.length ? labels.join("، ") : "—"}</Td>
+                <Td className="text-xs">{enrollmentLabels.length ? enrollmentLabels.join("، ") : "—"}</Td>
                 <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
-                <Td className="tabular-nums text-emerald-700">{money(bal.paid, cur)}</Td>
-                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
+                <Td className="tabular-nums">{money(bal.paid, cur)}</Td>
+                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>
+                  {money(bal.due, cur)}
+                </Td>
                 <Td>
                   <Badge tone={s.status === "active" ? "success" : s.status === "graduated" ? "primary" : "muted"}>
                     {s.status === "active" ? "نشط" : s.status === "graduated" ? "متخرّج" : "غير نشط"}
                   </Badge>
                 </Td>
-                <Td>{canEdit ? <Button variant="ghost" onClick={() => startEdit(s)}>تعديل</Button> : null}</Td>
+                <Td>
+                  {canEdit ? (
+                    <Button variant="ghost" onClick={() => startEdit(s)}>
+                      تعديل
+                    </Button>
+                  ) : null}
+                </Td>
               </tr>
             );
           })}
