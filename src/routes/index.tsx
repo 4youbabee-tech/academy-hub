@@ -3,15 +3,15 @@ import { useApp } from "@/lib/session";
 import { Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { Denied } from "@/components/AppShell";
 import { money, dateStr, today } from "@/lib/format";
-import { overdueInstallments, profitAndLoss } from "@/lib/finance";
+import { profitAndLoss, studentBalance } from "@/lib/finance";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "لوحة المعلومات — نظام إدارة المعهد" },
-      { name: "description", content: "نظرة عامة على الطلاب والصفوف والمالية والمتأخرات في المعهد." },
+      { name: "description", content: "نظرة عامة على الطلاب والصفوف والمقبوضات والمصروفات والأرصدة." },
       { property: "og:title", content: "لوحة المعلومات — نظام إدارة المعهد" },
-      { property: "og:description", content: "نظرة عامة على الطلاب والصفوف والمالية والمتأخرات." },
+      { property: "og:description", content: "نظرة عامة على الطلاب والصفوف والمقبوضات والمصروفات والأرصدة." },
     ],
   }),
   component: Dashboard,
@@ -37,7 +37,10 @@ function Dashboard() {
     console.error("خطأ في حساب الربح والخسارة:", error);
   }
 
-  const overdue = overdueInstallments(db);
+  const studentsWithBalance = db.students
+    .map((student) => ({ student, balance: studentBalance(db, student.id) }))
+    .filter((row) => row.balance.due > 0)
+    .sort((a, b) => b.balance.due - a.balance.due);
 
   return (
     <div>
@@ -74,23 +77,24 @@ function Dashboard() {
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <div>
-          <h2 className="mb-2 text-sm font-bold">أقساط متأخرة ({overdue.length})</h2>
-          {overdue.length ? (
-            <Table head={["الطالب", "تاريخ الاستحقاق", "المبلغ"]}>
-              {overdue.slice(0, 8).map((ins) => {
-                const inv = db.invoices.find((i) => i.id === ins.invoice_id);
-                const st = db.students.find((s) => s.id === inv?.student_id);
-                return (
-                  <tr key={ins.id}>
-                    <Td>{st?.full_name ?? "—"}</Td>
-                    <Td>{dateStr(ins.due_date)}</Td>
-                    <Td className="tabular-nums text-destructive">{money(ins.amount, cur)}</Td>
-                  </tr>
-                );
-              })}
+          <h2 className="mb-2 text-sm font-bold">طلاب عليهم رصيد ({studentsWithBalance.length})</h2>
+          {studentsWithBalance.length ? (
+            <Table head={["الطالب", "المستحق", "المقبوض", "المتبقي"]}>
+              {studentsWithBalance.slice(0, 8).map(({ student, balance }) => (
+                <tr key={student.id}>
+                  <Td>
+                    <Link className="font-semibold text-primary hover:underline" to="/students/$id" params={{ id: student.id }}>
+                      {student.full_name}
+                    </Link>
+                  </Td>
+                  <Td className="tabular-nums">{money(balance.billed, cur)}</Td>
+                  <Td className="tabular-nums text-emerald-700">{money(balance.paid, cur)}</Td>
+                  <Td className="tabular-nums text-destructive">{money(balance.due, cur)}</Td>
+                </tr>
+              ))}
             </Table>
           ) : (
-            <Empty text="لا توجد أقساط متأخرة." />
+            <Empty text="لا يوجد طلاب عليهم رصيد حاليًا." />
           )}
         </div>
 
