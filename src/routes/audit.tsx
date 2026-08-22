@@ -2,199 +2,138 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
-import { insert, update, remove, hashPassword } from "@/lib/db";
-import { ROLE_LABELS } from "@/lib/permissions";
-import type { User, RoleKey } from "@/lib/types";
+import { Badge, Button, Empty, Field, Input, PageHeader, Select, Table, Td } from "@/components/ui-kit";
+import { dateStr } from "@/lib/format";
 
 export const Route = createFileRoute("/audit")({
   head: () => ({
     meta: [
-      { title: "المستخدمون — نظام إدارة المعهد" },
-      { name: "description", content: "إدارة المستخدمين والأدوار والصلاحيات." },
+      { title: "سجل التدقيق — نظام إدارة المعهد" },
+      { name: "description", content: "سجل جميع العمليات الحساسة في النظام مع فلترة متقدمة." },
     ],
   }),
-  component: UsersPage,
+  component: AuditPage,
 });
 
-const EMPTY = { username: "", full_name: "", password: "", role: "secretary" as RoleKey, is_active: true };
-
-function UsersPage() {
-  const { db, actor, allowed, user: currentUser } = useApp();
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState(EMPTY);
-  const [error, setError] = useState<string | null>(null);
+function AuditPage() {
+  const { db, allowed } = useApp();
+  const [q, setQ] = useState("");
+  const [entity, setEntity] = useState("");
+  const [action, setAction] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   if (!db) return null;
-  if (!allowed("users.view")) return <Denied />;
-  const canEdit = allowed("users.create");
-  const canDelete = allowed("users.delete");
+  if (!allowed("audit.view")) return <Denied />;
 
-  const rows = useMemo(() => db.users.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar")), [db]);
+  const entities = useMemo(() => [...new Set(db.audit_log.map((a) => a.entity).filter(Boolean))], [db]);
+  const actions = useMemo(() => [...new Set(db.audit_log.map((a) => a.action).filter(Boolean))], [db]);
 
-  function startAdd() {
-    setEditing(null);
-    setForm(EMPTY);
-    setError(null);
-    setOpen(true);
-  }
+  const rows = useMemo(() => {
+    let logs = db.audit_log.slice();
 
-  function startEdit(u: User) {
-    setEditing(u);
-    setForm({
-      username: u.username,
-      full_name: u.full_name,
-      password: "",
-      role: u.role,
-      is_active: u.is_active,
-    });
-    setError(null);
-    setOpen(true);
-  }
-
-  async function save() {
-    if (!form.username.trim()) return setError("اسم المستخدم إلزامي");
-    if (!form.full_name.trim()) return setError("الاسم الظاهر إلزامي");
-
-    const existing = db.users.find(
-      (u) => u.username.toLowerCase() === form.username.trim().toLowerCase() && u.id !== editing?.id,
-    );
-    if (existing) return setError("اسم المستخدم موجود مسبقاً");
-
-    try {
-      if (editing) {
-        const patch: Partial<User> = {
-          username: form.username.trim(),
-          full_name: form.full_name.trim(),
-          role: form.role,
-          is_active: form.is_active,
-        };
-        if (form.password.trim()) {
-          patch.password_hash = await hashPassword(form.password.trim());
-        }
-        update("users", editing.id, patch, actor, `تعديل المستخدم ${form.full_name}`);
-      } else {
-        if (!form.password.trim()) return setError("كلمة المرور إلزامية للمستخدم الجديد");
-        const password_hash = await hashPassword(form.password.trim());
-        insert(
-          "users",
-          {
-            username: form.username.trim(),
-            full_name: form.full_name.trim(),
-            password_hash,
-            role: form.role,
-            is_active: form.is_active,
-            employee_id: null,
-          },
-          actor,
-          `إضافة المستخدم ${form.full_name}`,
-        );
-      }
-      setOpen(false);
-    } catch (e) {
-      setError((e as Error).message);
+    if (q.trim()) {
+      const term = q.trim().toLowerCase();
+      logs = logs.filter(
+        (a) =>
+          a.user_name?.toLowerCase().includes(term) ||
+          a.detail?.toLowerCase().includes(term) ||
+          a.entity?.toLowerCase().includes(term),
+      );
     }
+    if (entity) logs = logs.filter((a) => a.entity === entity);
+    if (action) logs = logs.filter((a) => a.action === action);
+    if (dateFrom) logs = logs.filter((a) => a.at.slice(0, 10) >= dateFrom);
+    if (dateTo) logs = logs.filter((a) => a.at.slice(0, 10) <= dateTo);
+
+    return logs.sort((a, b) => b.at.localeCompare(a.at));
+  }, [db, q, entity, action, dateFrom, dateTo]);
+
+  function getActionBadge(action: string) {
+    const map: Record<string, string> = {
+      create: "success",
+      update: "primary",
+      delete: "danger",
+      void: "warning",
+      login: "primary",
+      logout: "muted",
+      mark: "warning",
+      init: "muted",
+    };
+    return map[action] || "muted";
   }
 
-  async function deleteUser(u: User) {
-    if (u.id === currentUser?.id) return setError("لا يمكن حذف حسابك الحالي");
-    if (!confirm(`هل تريد حذف المستخدم "${u.full_name}"؟`)) return;
-    remove("users", u.id, actor, `حذف المستخدم ${u.full_name}`);
-  }
+  const actionLabels: Record<string, string> = {
+    create: "إنشاء",
+    update: "تعديل",
+    delete: "حذف",
+    void: "إلغاء",
+    login: "دخول",
+    logout: "خروج",
+    mark: "تسجيل",
+    init: "تهيئة",
+  };
 
   return (
     <div>
       <PageHeader
-        title="المستخدمون"
-        subtitle={`${db.users.length} مستخدم`}
-        actions={canEdit ? <Button onClick={startAdd}>+ مستخدم جديد</Button> : null}
+        title="سجل التدقيق"
+        subtitle={`${rows.length} سجل${rows.length !== 1 ? "ات" : ""}`}
       />
 
+      <div className="panel mb-5 p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Field label="بحث">
+            <Input
+              placeholder="مستخدم / تفاصيل..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </Field>
+          <Field label="الكيان">
+            <Select value={entity} onChange={(e) => setEntity(e.target.value)}>
+              <option value="">الكل</option>
+              {entities.map((e) => (
+                <option key={e} value={e}>{e}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="الإجراء">
+            <Select value={action} onChange={(e) => setAction(e.target.value)}>
+              <option value="">الكل</option>
+              {actions.map((a) => (
+                <option key={a} value={a}>{actionLabels[a] || a}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="من تاريخ">
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </Field>
+          <Field label="إلى تاريخ">
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </Field>
+        </div>
+      </div>
+
       {rows.length === 0 ? (
-        <Empty text="لا يوجد مستخدمون." />
+        <Empty text="لا توجد سجلات مطابقة." />
       ) : (
-        <Table head={["اسم المستخدم", "الاسم الظاهر", "الدور", "الحالة", ""]}>
-          {rows.map((u) => (
-            <tr key={u.id} className={u.id === currentUser?.id ? "bg-muted/40" : ""}>
-              <Td className="font-semibold">@{u.username}</Td>
-              <Td>{u.full_name}</Td>
-              <Td>{ROLE_LABELS[u.role]}</Td>
+        <Table head={["التاريخ", "المستخدم", "الكيان", "الإجراء", "التفاصيل"]}>
+          {rows.map((a) => (
+            <tr key={a.id}>
+              <Td className="whitespace-nowrap text-xs">{dateStr(a.at)}</Td>
+              <Td className="font-semibold">{a.user_name || "النظام"}</Td>
+              <Td>{a.entity}</Td>
               <Td>
-                <Badge tone={u.is_active ? "success" : "muted"}>{u.is_active ? "نشط" : "معطّل"}</Badge>
-                {u.id === currentUser?.id && (
-                  <Badge tone="primary" className="mr-2">أنت</Badge>
-                )}
+                <Badge tone={getActionBadge(a.action)}>
+                  {actionLabels[a.action] || a.action}
+                </Badge>
               </Td>
-              <Td>
-                <div className="flex gap-1">
-                  {canEdit && (
-                    <Button variant="ghost" onClick={() => startEdit(u)}>
-                      تعديل
-                    </Button>
-                  )}
-                  {canDelete && u.id !== currentUser?.id && (
-                    <Button variant="ghost" onClick={() => deleteUser(u)}>
-                      حذف
-                    </Button>
-                  )}
-                </div>
-              </Td>
+              <Td className="text-sm text-muted-foreground">{a.detail}</Td>
             </tr>
           ))}
         </Table>
       )}
-
-      <Modal open={open} title={editing ? "تعديل مستخدم" : "مستخدم جديد"} onClose={() => setOpen(false)}>
-        <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="اسم المستخدم">
-              <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} dir="ltr" />
-            </Field>
-            <Field label="الاسم الظاهر">
-              <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-            </Field>
-            <Field label={editing ? "كلمة المرور (اتركها فارغة للإبقاء)" : "كلمة المرور"}>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                dir="ltr"
-                required={!editing}
-              />
-            </Field>
-            <Field label="الدور">
-              <Select
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value as RoleKey })}
-              >
-                <option value="owner">مالك</option>
-                <option value="director">مدير</option>
-                <option value="accountant">محاسب</option>
-                <option value="secretary">سكرتير</option>
-                <option value="teacher">مدرّس</option>
-              </Select>
-            </Field>
-          </div>
-          <Field label="نشط">
-            <select
-              value={form.is_active ? "1" : "0"}
-              onChange={(e) => setForm({ ...form, is_active: e.target.value === "1" })}
-              className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm"
-            >
-              <option value="1">نشط</option>
-              <option value="0">معطّل</option>
-            </select>
-          </Field>
-          {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setOpen(false)}>
-              إلغاء
-            </Button>
-            <Button onClick={save}>حفظ</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
