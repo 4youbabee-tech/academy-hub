@@ -45,9 +45,19 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return <select className={cn(fieldCls, className)} {...props} />;
 }
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Field({
+  label,
+  children,
+  hint,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+  className?: string;
+}) {
   return (
-    <label className="block space-y-1.5">
+    <label className={cn("block space-y-1.5", className)}>
       <span className="text-xs font-semibold text-muted-foreground">{label}</span>
       {children}
       {hint ? <span className="block text-xs text-muted-foreground">{hint}</span> : null}
@@ -110,9 +120,11 @@ export function Stat({
 export function Badge({
   children,
   tone = "muted",
+  className,
 }: {
   children: ReactNode;
   tone?: "muted" | "success" | "warning" | "danger" | "primary";
+  className?: string;
 }) {
   const tones = {
     muted: "bg-muted text-muted-foreground",
@@ -122,7 +134,7 @@ export function Badge({
     primary: "bg-primary/12 text-primary",
   } as const;
   return (
-    <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold", tones[tone])}>
+    <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold", tones[tone], className)}>
       {children}
     </span>
   );

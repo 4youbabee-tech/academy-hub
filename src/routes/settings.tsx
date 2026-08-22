@@ -73,7 +73,7 @@ function SettingsPage() {
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
       setLogoPreview(dataUrl);
-      setSettings({ ...settings, logo_data_url: dataUrl });
+      setSettings((prev) => (prev ? { ...prev, logo_data_url: dataUrl } : prev));
     };
     reader.readAsDataURL(file);
   }

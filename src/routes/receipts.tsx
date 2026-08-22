@@ -34,8 +34,8 @@ function ReceiptsPage() {
 
   // دالة طباعة الإيصال
   function printReceipt(payment: Payment) {
-    const student = db.students.find((s) => s.id === payment.student_id);
-    const settings = db.settings;
+    const student = db!.students.find((s) => s.id === payment.student_id);
+    const settings = db!.settings;
     const paperSize = settings.receipt_paper_size || "A5";
     const maxWidth = paperSize === "A4" ? "210mm" : "148mm";
 
