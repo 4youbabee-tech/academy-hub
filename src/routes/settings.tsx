@@ -9,7 +9,7 @@ export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
       { title: "الإعدادات — نظام إدارة المعهد" },
-      { name: "description", content: "إعدادات المعهد: الاسم، الشعار، العملة، أوزان التقييم، أنواع المصاريف، الترقيم." },
+      { name: "description", content: "إعدادات المعهد: الاسم، الشعار، العملة، أنواع المصاريف، الترقيم وإعدادات الإيصالات." },
     ],
   }),
   component: SettingsPage,
@@ -143,93 +143,6 @@ function SettingsPage() {
                 placeholder="2025-2026"
               />
             </Field>
-          </div>
-        </div>
-
-        {/* أوزان التقييم */}
-        <div className="panel p-5">
-          <h2 className="mb-4 text-sm font-bold">📊 أوزان التقييم</h2>
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="نهائي %">
-                <Input
-                  type="number"
-                  value={settings.grading.weights.final}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      grading: {
-                        ...settings.grading,
-                        weights: { ...settings.grading.weights, final: Number(e.target.value) || 0 },
-                      },
-                    })
-                  }
-                  disabled={!canEdit}
-                />
-              </Field>
-              <Field label="نصفي %">
-                <Input
-                  type="number"
-                  value={settings.grading.weights.midterm}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      grading: {
-                        ...settings.grading,
-                        weights: { ...settings.grading.weights, midterm: Number(e.target.value) || 0 },
-                      },
-                    })
-                  }
-                  disabled={!canEdit}
-                />
-              </Field>
-              <Field label="اختبارات قصيرة %">
-                <Input
-                  type="number"
-                  value={settings.grading.weights.quiz}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      grading: {
-                        ...settings.grading,
-                        weights: { ...settings.grading.weights, quiz: Number(e.target.value) || 0 },
-                      },
-                    })
-                  }
-                  disabled={!canEdit}
-                />
-              </Field>
-              <Field label="الحضور %">
-                <Input
-                  type="number"
-                  value={settings.grading.weights.attendance}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      grading: {
-                        ...settings.grading,
-                        weights: { ...settings.grading.weights, attendance: Number(e.target.value) || 0 },
-                      },
-                    })
-                  }
-                  disabled={!canEdit}
-                />
-              </Field>
-            </div>
-            <Field label="نسبة النجاح %">
-              <Input
-                type="number"
-                value={settings.grading.pass_mark}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    grading: { ...settings.grading, pass_mark: Number(e.target.value) || 0 },
-                  })
-                }
-                disabled={!canEdit}
-              />
-            </Field>
-            <p className="text-xs text-muted-foreground">المجموع يجب أن يكون 100% لضمان دقة النتائج.</p>
           </div>
         </div>
 
