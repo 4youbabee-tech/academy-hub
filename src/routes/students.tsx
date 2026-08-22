@@ -1,3 +1,4 @@
+students.tsx
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
@@ -26,7 +27,7 @@ const EMPTY = {
   guardian_name: "",
   guardian_phone: "",
   address: "",
-  education_level: "" as Student["education_level"], // ✅ جديد
+  education_level: "" as Student["education_level"],
   status: "active" as Student["status"],
   notes: "",
 };
@@ -76,7 +77,7 @@ function StudentsPage() {
       guardian_name: s.guardian_name,
       guardian_phone: s.guardian_phone,
       address: s.address,
-      education_level: s.education_level || "", // ✅ جديد
+      education_level: s.education_level || "",
       status: s.status,
       notes: s.notes,
     });
@@ -94,7 +95,7 @@ function StudentsPage() {
           {
             ...form,
             birth_date: form.birth_date || null,
-            education_level: form.education_level || null, // ✅ جديد
+            education_level: form.education_level || null,
           },
           actor,
           `تعديل الطالب ${form.full_name}`,
@@ -110,7 +111,7 @@ function StudentsPage() {
             ...form,
             code,
             birth_date: form.birth_date || null,
-            education_level: form.education_level || null, // ✅ جديد
+            education_level: form.education_level || null,
           },
           actor,
           `إضافة الطالب ${form.full_name}`,
@@ -143,9 +144,15 @@ function StudentsPage() {
       </div>
 
       {rows.length ? (
-        <Table head={["الرمز", "الاسم", "الهاتف", "المستوى", "الحالة", "الرصيد المستحق", ""]}>
+        <Table head={["الرمز", "الاسم", "المستوى", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
           {rows.map((s) => {
             const bal = studentBalance(db, s.id);
+            const activeEnrollments = db.enrollments.filter((e) => e.student_id === s.id && e.status === "active");
+            const labels = activeEnrollments.map((e) => {
+              const klass = db.classes.find((k) => k.id === e.class_id);
+              const course = db.courses.find((c) => c.id === klass?.course_id);
+              return course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : klass?.name || "—";
+            });
             return (
               <tr key={s.id}>
                 <Td className="tabular-nums">{s.code}</Td>
@@ -154,23 +161,17 @@ function StudentsPage() {
                     {s.full_name}
                   </Link>
                 </Td>
-                <Td className="tabular-nums">{s.phone || "—"}</Td>
-                <Td>{s.education_level || "—"}</Td> {/* ✅ جديد */}
+                <Td>{s.education_level || "—"}</Td>
+                <Td className="text-xs">{labels.length ? labels.join("، ") : "—"}</Td>
+                <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
+                <Td className="tabular-nums text-emerald-700">{money(bal.paid, cur)}</Td>
+                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
                 <Td>
                   <Badge tone={s.status === "active" ? "success" : s.status === "graduated" ? "primary" : "muted"}>
                     {s.status === "active" ? "نشط" : s.status === "graduated" ? "متخرّج" : "غير نشط"}
                   </Badge>
                 </Td>
-                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>
-                  {money(bal.due, cur)}
-                </Td>
-                <Td>
-                  {canEdit ? (
-                    <Button variant="ghost" onClick={() => startEdit(s)}>
-                      تعديل
-                    </Button>
-                  ) : null}
-                </Td>
+                <Td>{canEdit ? <Button variant="ghost" onClick={() => startEdit(s)}>تعديل</Button> : null}</Td>
               </tr>
             );
           })}
