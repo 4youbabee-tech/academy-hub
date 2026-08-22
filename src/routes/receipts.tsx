@@ -3,8 +3,8 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { installmentLabel, installmentPaid, invoiceBalance, invoiceInstallments, recordPayment, voidPayment } from "@/lib/finance";
-import { dateStr, fromMinor, money, toMinor } from "@/lib/format";
+import { invoiceBalance, recordPayment, voidPayment } from "@/lib/finance";
+import { dateStr, money, toMinor } from "@/lib/format";
 import { printReceipt } from "@/lib/receipt-print";
 import type { Payment } from "@/lib/types";
 
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/receipts")({
   head: () => ({
     meta: [
       { title: "الإيصالات والفواتير — نظام إدارة المعهد" },
-      { name: "description", content: "إدارة الفواتير، المقبوضات، الأقساط وسندات القبض من مكان واحد." },
+      { name: "description", content: "إدارة الفواتير والمقبوضات وسندات القبض من مكان واحد." },
     ],
   }),
   component: ReceiptsPage,
@@ -29,7 +29,6 @@ function ReceiptsPage() {
   const [receiptFilter, setReceiptFilter] = useState<ReceiptFilter>("all");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
   const [payFor, setPayFor] = useState<string | null>(null);
-  const [installmentId, setInstallmentId] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<Payment["method"]>("cash");
   const [note, setNote] = useState("");
@@ -103,37 +102,14 @@ function ReceiptsPage() {
   const currentEnrollment = currentInvoice ? db.enrollments.find((e) => e.id === currentInvoice.enrollment_id) ?? null : null;
   const currentClass = currentEnrollment ? db.classes.find((k) => k.id === currentEnrollment.class_id) ?? null : null;
   const currentCourse = currentClass ? db.courses.find((c) => c.id === currentClass.course_id) ?? null : null;
-  const currentInstallments = currentInvoice ? invoiceInstallments(db, currentInvoice.id) : [];
-  const currentInstallment = currentInstallments.find((ins) => ins.id === installmentId) ?? null;
   const invoiceRemaining = currentInvoice ? invoiceBalance(db, currentInvoice.id) : 0;
-  const installmentRemaining = currentInstallment
-    ? Math.max(0, currentInstallment.amount - installmentPaid(db, currentInstallment.id))
-    : 0;
 
-  function fillPaymentForm(invoiceId: string | null, preferredInstallmentId?: string) {
+  function fillPaymentForm(invoiceId: string | null) {
     setPayFor(invoiceId);
     setMethod("cash");
     setNote("");
+    setAmount("");
     setError(null);
-
-    if (!invoiceId) {
-      setInstallmentId("");
-      setAmount("");
-      return;
-    }
-
-    const list = invoiceInstallments(db, invoiceId);
-    const unpaid = list.filter((ins) => ins.amount - installmentPaid(db, ins.id) > 0);
-    const chosen = preferredInstallmentId
-      ? list.find((ins) => ins.id === preferredInstallmentId) ?? null
-      : unpaid[0] ?? null;
-
-    const suggested = chosen
-      ? Math.max(0, chosen.amount - installmentPaid(db, chosen.id))
-      : invoiceBalance(db, invoiceId);
-
-    setInstallmentId(chosen?.id ?? "");
-    setAmount(suggested > 0 ? fromMinor(suggested) : "");
   }
 
   function submitPayment() {
@@ -142,7 +118,6 @@ function ReceiptsPage() {
       recordPayment(
         {
           invoice_id: payFor,
-          installment_id: installmentId || null,
           amount: toMinor(amount),
           method,
           note: note.trim(),
@@ -150,7 +125,6 @@ function ReceiptsPage() {
         actor,
       );
       setPayFor(null);
-      setInstallmentId("");
       setAmount("");
       setMethod("cash");
       setNote("");
@@ -262,14 +236,13 @@ function ReceiptsPage() {
       ) : receipts.length === 0 ? (
         <Empty text="لا توجد سندات قبض مطابقة." />
       ) : (
-        <Table head={["رقم السند", "الطالب", "نوع القبض", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
+        <Table head={["رقم السند", "الطالب", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
           {receipts.map((p) => {
             const student = db.students.find((s) => s.id === p.student_id);
             const invoice = db.invoices.find((i) => i.id === p.invoice_id);
             const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
             const klass = db.classes.find((k) => k.id === enrollment?.class_id);
             const course = db.courses.find((c) => c.id === klass?.course_id);
-            const inst = db.installments.find((i) => i.id === p.installment_id);
 
             return (
               <tr key={p.id} className={p.is_void ? "opacity-60" : ""}>
@@ -279,7 +252,7 @@ function ReceiptsPage() {
                     {student?.full_name || "—"}
                   </Link>
                 </Td>
-                <Td>{inst ? installmentLabel(inst) : "دفعة على الحساب"}</Td>
+                <Td>{p.note?.trim() || "دفعة"}</Td>
                 <Td>{course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : "—"}</Td>
                 <Td className="tabular-nums">{money(p.amount, cur)}</Td>
                 <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "بنك" : "أخرى"}</Td>
@@ -332,42 +305,6 @@ function ReceiptsPage() {
             </div>
           ) : null}
 
-          <Field label="نوع القبض">
-            <Select
-              value={installmentId}
-              onChange={(e) => {
-                const next = e.target.value;
-                setInstallmentId(next);
-                if (!payFor) return;
-                if (!next) {
-                  setAmount(fromMinor(invoiceBalance(db, payFor)));
-                  return;
-                }
-                const ins = currentInstallments.find((x) => x.id === next);
-                const remaining = ins ? Math.max(0, ins.amount - installmentPaid(db, ins.id)) : 0;
-                setAmount(remaining > 0 ? fromMinor(remaining) : "");
-              }}
-            >
-              <option value="">دفعة على الحساب / عام</option>
-              {currentInstallments
-                .filter((ins) => ins.amount - installmentPaid(db, ins.id) > 0)
-                .map((ins) => {
-                  const remaining = Math.max(0, ins.amount - installmentPaid(db, ins.id));
-                  return (
-                    <option key={ins.id} value={ins.id}>
-                      {installmentLabel(ins)} — المتبقي {money(remaining, cur)}
-                    </option>
-                  );
-                })}
-            </Select>
-          </Field>
-
-          {currentInstallment ? (
-            <p className="text-xs text-muted-foreground">
-              المتبقي في {installmentLabel(currentInstallment)}: {money(installmentRemaining, cur)}
-            </p>
-          ) : null}
-
           <Field label="المبلغ المقبوض">
             <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="أدخل المبلغ..." />
           </Field>
@@ -380,8 +317,12 @@ function ReceiptsPage() {
             </Select>
           </Field>
 
-          <Field label="ملاحظة (اختياري)">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثال: قبض تسجيل / القسط الأول" />
+          <Field label="البيان / الملاحظة">
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="مثال: رسوم تسجيل، قسط أول، دفعة شهر آب..."
+            />
           </Field>
 
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
