@@ -57,6 +57,12 @@ function EmployeesPage() {
     if (!form.full_name.trim()) return setError("الاسم إلزامي");
     const base_salary = toMinor(form.salary);
     if (editId) {
+      const outstandingAdvances = db.advances
+        .filter((a) => a.employee_id === editId && !a.settled)
+        .reduce((sum, a) => sum + a.amount, 0);
+      if (base_salary < outstandingAdvances) {
+        return setError(`لا يمكن جعل الراتب أقل من السلف غير المسددة (${money(outstandingAdvances, cur)})`);
+      }
       update("employees", editId, { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, base_salary }, actor, `تعديل موظف ${form.full_name}`);
     } else {
       insert(
@@ -108,10 +114,47 @@ function EmployeesPage() {
   function saveAdvance() {
     if (!advFor) return;
     const amount = toMinor(adv.amount);
-    if (amount <= 0) return;
-    insert("advances", { employee_id: advFor, amount, date: today(), reason: adv.reason, settled: false }, actor, "سلفة موظف");
+    if (amount <= 0) return setError("مبلغ السلفة غير صالح");
+
+    const employee = db.employees.find((e) => e.id === advFor);
+    if (!employee) return setError("الموظف غير موجود");
+
+    const outstanding = db.advances
+      .filter((a) => a.employee_id === advFor && !a.settled)
+      .reduce((sum, a) => sum + a.amount, 0);
+
+    if (outstanding + amount > employee.base_salary) {
+      return setError(`إجمالي السلف غير المسددة لا يمكن أن يتجاوز الراتب الأساسي (${money(employee.base_salary, cur)})`);
+    }
+
+    transact((d) => {
+      d.advances.push({
+        ...baseFields(),
+        employee_id: advFor,
+        amount,
+        date: today(),
+        reason: adv.reason.trim(),
+        settled: false,
+      });
+
+      const currentDraft = d.payroll_items.find(
+        (p) => p.employee_id === advFor && p.period === monthNow() && p.status === "draft",
+      );
+      if (currentDraft) {
+        currentDraft.advance_deducted += amount;
+        currentDraft.net = Math.max(
+          0,
+          currentDraft.base_snapshot + currentDraft.bonus - currentDraft.deduction - currentDraft.advance_deducted,
+        );
+        currentDraft.updated_at = new Date().toISOString();
+      }
+
+      audit(d, actor, "advances", null, "create", `سلفة موظف بقيمة ${amount / 100}`);
+    });
+
     setAdvFor(null);
     setAdv({ amount: "", reason: "" });
+    setError(null);
   }
 
   function printSalaryReceipt(item: PayrollItem) {
@@ -182,8 +225,15 @@ function EmployeesPage() {
     win.document.close();
   }
 
-  const totalNet = items.reduce((s, i) => s + i.net, 0);
+  const totalSalaryEntitlement = items.reduce(
+    (sum, i) => sum + Math.max(0, i.base_snapshot + i.bonus - i.deduction),
+    0,
+  );
   const paidNet = items.filter((i) => i.status === "paid").reduce((s, i) => s + i.net, 0);
+  const advancesThisPeriod = db.advances
+    .filter((a) => a.date.slice(0, 7) === period)
+    .reduce((sum, a) => sum + a.amount, 0);
+  const totalPaidToEmployees = paidNet + advancesThisPeriod;
 
   return (
     <div>
@@ -231,7 +281,14 @@ function EmployeesPage() {
                     >
                       تعديل
                     </Button>
-                    <Button variant="ghost" onClick={() => setAdvFor(e.id)}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setAdvFor(e.id);
+                        setAdv({ amount: "", reason: "" });
+                        setError(null);
+                      }}
+                    >
                       سلفة
                     </Button>
                     <Button variant="ghost" onClick={() => update("employees", e.id, { active: !e.active }, actor, "تغيير حالة موظف")}>
@@ -250,9 +307,11 @@ function EmployeesPage() {
         <Input className="max-w-40" type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
         {canEdit ? <Button onClick={generatePayroll}>توليد الكشف</Button> : null}
       </div>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <Stat label="إجمالي الكشف" value={money(totalNet, cur)} />
-        <Stat label="المدفوع" value={money(paidNet, cur)} tone="success" />
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="إجمالي استحقاق الرواتب" value={money(totalSalaryEntitlement, cur)} />
+        <Stat label="سلف مدفوعة خلال الشهر" value={money(advancesThisPeriod, cur)} />
+        <Stat label="رواتب مدفوعة نقدًا" value={money(paidNet, cur)} tone="success" />
+        <Stat label="إجمالي ما صُرف للموظفين" value={money(totalPaidToEmployees, cur)} tone="success" />
       </div>
 
       {items.length === 0 ? (
@@ -318,7 +377,14 @@ function EmployeesPage() {
         </div>
       </Modal>
 
-      <Modal open={!!advFor} title="سلفة موظف" onClose={() => setAdvFor(null)}>
+      <Modal
+        open={!!advFor}
+        title="سلفة موظف"
+        onClose={() => {
+          setAdvFor(null);
+          setError(null);
+        }}
+      >
         <div className="space-y-3">
           <Field label="المبلغ">
             <Input value={adv.amount} onChange={(e) => setAdv({ ...adv, amount: e.target.value })} />
@@ -326,6 +392,15 @@ function EmployeesPage() {
           <Field label="السبب">
             <Input value={adv.reason} onChange={(e) => setAdv({ ...adv, reason: e.target.value })} />
           </Field>
+          {advFor ? (
+            <p className="text-xs text-muted-foreground">
+              السلف غير المسددة الحالية: {money(
+                db.advances.filter((a) => a.employee_id === advFor && !a.settled).reduce((sum, a) => sum + a.amount, 0),
+                cur,
+              )}
+            </p>
+          ) : null}
+          {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setAdvFor(null)}>
               إلغاء
