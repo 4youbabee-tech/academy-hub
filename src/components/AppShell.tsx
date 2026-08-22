@@ -40,7 +40,7 @@ const NAV = [
 ] as const;
 
 function LoginScreen() {
-  const { login } = useApp();
+  const { db, login } = useApp();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +49,16 @@ function LoginScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Panel className="w-full max-w-sm">
-        <h1 className="text-xl font-bold">نظام إدارة المعهد</h1>
+        <div className="mb-4 flex flex-col items-center text-center">
+          {db?.settings.logo_data_url ? (
+            <img
+              src={db.settings.logo_data_url}
+              alt={db.settings.institute_name || "شعار المعهد"}
+              className="mb-3 h-20 w-20 rounded-xl object-contain"
+            />
+          ) : null}
+          <h1 className="text-xl font-bold">{db?.settings.institute_name || "نظام إدارة المعهد"}</h1>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">سجّل الدخول للمتابعة</p>
         <form
           className="mt-5 space-y-3"
@@ -104,8 +113,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <div className="px-2 pb-4">
-          <p className="text-base font-bold">{db.settings.institute_name}</p>
-          <p className="text-xs opacity-70">السنة الدراسية {db.settings.academic_year}</p>
+          <div className="flex items-center gap-3">
+            {db.settings.logo_data_url ? (
+              <img
+                src={db.settings.logo_data_url}
+                alt={db.settings.institute_name || "شعار المعهد"}
+                className="h-12 w-12 shrink-0 rounded-lg bg-white/90 object-contain p-1"
+              />
+            ) : null}
+            <div className="min-w-0">
+              <p className="truncate text-base font-bold">{db.settings.institute_name}</p>
+              <p className="text-xs opacity-70">السنة الدراسية {db.settings.academic_year}</p>
+            </div>
+          </div>
         </div>
         <nav className="space-y-4">
           {NAV.map((group) => {
