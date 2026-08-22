@@ -1,139 +1,198 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useApp } from "@/lib/session";
+import { useRef, useState, type ChangeEvent } from "react";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, PageHeader, Select, Table, Td } from "@/components/ui-kit";
-import { dateStr } from "@/lib/format";
+import { Button, PageHeader, Panel } from "@/components/ui-kit";
+import { audit, replaceDb, transact } from "@/lib/db";
+import { useApp } from "@/lib/session";
+import type { DB } from "@/lib/types";
 
 export const Route = createFileRoute("/backup")({
   head: () => ({
     meta: [
-      { title: "سجل التدقيق — نظام إدارة المعهد" },
-      { name: "description", content: "سجل جميع العمليات الحساسة في النظام مع فلترة متقدمة." },
+      { title: "النسخ الاحتياطي — نظام إدارة المعهد" },
+      { name: "description", content: "إنشاء نسخة احتياطية محلية واستعادة بيانات النظام." },
     ],
   }),
-  component: AuditPage,
+  component: BackupPage,
 });
 
-function AuditPage() {
-  const { db, allowed } = useApp();
-  const [q, setQ] = useState("");
-  const [entity, setEntity] = useState("");
-  const [action, setAction] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+function isDbBackup(value: unknown): value is DB {
+  if (!value || typeof value !== "object") return false;
+  const db = value as Partial<DB>;
+
+  return (
+    typeof db.schema_version === "number" &&
+    !!db.settings &&
+    typeof db.settings === "object" &&
+    Array.isArray(db.users) &&
+    Array.isArray(db.students) &&
+    Array.isArray(db.courses) &&
+    Array.isArray(db.classes) &&
+    Array.isArray(db.enrollments) &&
+    Array.isArray(db.invoices) &&
+    Array.isArray(db.installments) &&
+    Array.isArray(db.payments) &&
+    Array.isArray(db.expenses) &&
+    Array.isArray(db.incomes) &&
+    Array.isArray(db.audit_log)
+  );
+}
+
+function safeFilePart(value: string): string {
+  return value
+    .trim()
+    .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "academy-hub";
+}
+
+function BackupPage() {
+  const { db, actor, allowed } = useApp();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   if (!db) return null;
-  if (!allowed("audit.view")) return <Denied />;
+  if (!allowed("backup.view")) return <Denied />;
 
-  const entities = useMemo(() => [...new Set(db.audit_log.map((a) => a.entity).filter(Boolean))], [db]);
-  const actions = useMemo(() => [...new Set(db.audit_log.map((a) => a.action).filter(Boolean))], [db]);
+  const canExport = allowed("backup.create");
+  const canRestore = allowed("backup.restore");
 
-  const rows = useMemo(() => {
-    let logs = db.audit_log.slice();
+  function exportBackup() {
+    try {
+      const payload = JSON.stringify(db, null, 2);
+      const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      a.href = url;
+      a.download = `${safeFilePart(db.settings.institute_name)}-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
 
-    if (q.trim()) {
-      const term = q.trim().toLowerCase();
-      logs = logs.filter(
-        (a) =>
-          a.user_name?.toLowerCase().includes(term) ||
-          a.detail?.toLowerCase().includes(term) ||
-          a.entity?.toLowerCase().includes(term),
+      transact((draft) =>
+        audit(draft, actor, "backup", null, "create", "إنشاء نسخة احتياطية من قاعدة البيانات المحلية"),
       );
+      setError(null);
+      setMessage("تم إنشاء النسخة الاحتياطية وتنزيلها على جهازك.");
+    } catch (e) {
+      setMessage(null);
+      setError((e as Error).message || "تعذر إنشاء النسخة الاحتياطية.");
     }
-    if (entity) logs = logs.filter((a) => a.entity === entity);
-    if (action) logs = logs.filter((a) => a.action === action);
-    if (dateFrom) logs = logs.filter((a) => a.at.slice(0, 10) >= dateFrom);
-    if (dateTo) logs = logs.filter((a) => a.at.slice(0, 10) <= dateTo);
-
-    return logs.sort((a, b) => b.at.localeCompare(a.at));
-  }, [db, q, entity, action, dateFrom, dateTo]);
-
-  function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
-    const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
-      create: "success",
-      update: "primary",
-      delete: "danger",
-      void: "warning",
-      login: "primary",
-      logout: "muted",
-      mark: "warning",
-      init: "muted",
-    };
-    return map[action] || "muted";
   }
 
-  const actionLabels: Record<string, string> = {
-    create: "إنشاء",
-    update: "تعديل",
-    delete: "حذف",
-    void: "إلغاء",
-    login: "دخول",
-    logout: "خروج",
-    mark: "تسجيل",
-    init: "تهيئة",
-  };
+  async function restoreBackup(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!confirm("استعادة النسخة ستستبدل البيانات المحلية الحالية بالكامل. هل تريد المتابعة؟")) return;
+
+    setRestoring(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+
+      if (!isDbBackup(parsed)) {
+        throw new Error("الملف المختار ليس نسخة احتياطية صالحة لـ Academy Hub.");
+      }
+
+      if (parsed.schema_version > db.schema_version) {
+        throw new Error(
+          `نسخة الاحتياط أحدث من إصدار قاعدة البيانات الحالي (v${parsed.schema_version}). حدّث البرنامج أولاً ثم أعد المحاولة.`,
+        );
+      }
+
+      replaceDb(parsed);
+      transact((draft) =>
+        audit(draft, actor, "backup", null, "restore", `استعادة نسخة احتياطية من الملف ${file.name}`),
+      );
+
+      setMessage("تمت استعادة النسخة الاحتياطية بنجاح.");
+    } catch (e) {
+      setError((e as Error).message || "تعذر استعادة النسخة الاحتياطية.");
+    } finally {
+      setRestoring(false);
+    }
+  }
 
   return (
     <div>
       <PageHeader
-        title="سجل التدقيق"
-        subtitle={`${rows.length} سجل${rows.length !== 1 ? "ات" : ""}`}
+        title="النسخ الاحتياطي"
+        subtitle="احفظ نسخة من بيانات المعهد محلياً أو استعد نسخة سابقة عند الحاجة."
       />
 
-      <div className="panel mb-5 p-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Field label="بحث">
-            <Input
-              placeholder="مستخدم / تفاصيل..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </Field>
-          <Field label="الكيان">
-            <Select value={entity} onChange={(e) => setEntity(e.target.value)}>
-              <option value="">الكل</option>
-              {entities.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="الإجراء">
-            <Select value={action} onChange={(e) => setAction(e.target.value)}>
-              <option value="">الكل</option>
-              {actions.map((a) => (
-                <option key={a} value={a}>{actionLabels[a] || a}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="من تاريخ">
-            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          </Field>
-          <Field label="إلى تاريخ">
-            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          </Field>
-        </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel>
+          <h2 className="text-lg font-bold">إنشاء نسخة احتياطية</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            يتم تنزيل ملف JSON يحتوي على الطلاب والدورات والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات
+            وسجل التدقيق الحالي.
+          </p>
+          <div className="mt-5">
+            <Button onClick={exportBackup} disabled={!canExport}>
+              تنزيل نسخة احتياطية
+            </Button>
+          </div>
+          {!canExport ? (
+            <p className="mt-3 text-xs text-muted-foreground">لا تملك صلاحية إنشاء نسخة احتياطية.</p>
+          ) : null}
+        </Panel>
+
+        <Panel>
+          <h2 className="text-lg font-bold">استعادة نسخة احتياطية</h2>
+          <p className="mt-2 text-sm leading-7 text-muted-foreground">
+            اختر ملف نسخة احتياطية صادر من Academy Hub. الاستعادة تستبدل البيانات المحلية الحالية، لذلك أنشئ نسخة
+            احتياطية قبل الاستعادة إذا كنت تحتاج البيانات الموجودة الآن.
+          </p>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={restoreBackup}
+          />
+          <div className="mt-5">
+            <Button
+              variant="secondary"
+              onClick={() => inputRef.current?.click()}
+              disabled={!canRestore || restoring}
+            >
+              {restoring ? "جارٍ الاستعادة..." : "اختيار ملف واستعادة"}
+            </Button>
+          </div>
+          {!canRestore ? (
+            <p className="mt-3 text-xs text-muted-foreground">لا تملك صلاحية استعادة نسخة احتياطية.</p>
+          ) : null}
+        </Panel>
       </div>
 
-      {rows.length === 0 ? (
-        <Empty text="لا توجد سجلات مطابقة." />
-      ) : (
-        <Table head={["التاريخ", "المستخدم", "الكيان", "الإجراء", "التفاصيل"]}>
-          {rows.map((a) => (
-            <tr key={a.id}>
-              <Td className="whitespace-nowrap text-xs">{dateStr(a.at)}</Td>
-              <Td className="font-semibold">{a.user_name || "النظام"}</Td>
-              <Td>{a.entity}</Td>
-              <Td>
-                <Badge tone={getActionBadge(a.action)}>
-                  {actionLabels[a.action] || a.action}
-                </Badge>
-              </Td>
-              <Td className="text-sm text-muted-foreground">{a.detail}</Td>
-            </tr>
-          ))}
-        </Table>
-      )}
+      {message ? (
+        <div className="mt-4 rounded-lg border border-border bg-card p-4 text-sm font-semibold text-success">
+          {message}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm font-semibold text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      <Panel className="mt-4">
+        <h2 className="text-sm font-bold">مهم</h2>
+        <p className="mt-2 text-sm leading-7 text-muted-foreground">
+          البيانات في هذا البرنامج محفوظة داخل المتصفح عبر IndexedDB، لذلك النسخة الاحتياطية الخارجية مهمة قبل تغيير
+          الجهاز أو مسح بيانات المتصفح أو إجراء تحديثات كبيرة على بنية قاعدة البيانات.
+        </p>
+      </Panel>
     </div>
   );
 }
