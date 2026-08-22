@@ -3,7 +3,7 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { installmentLabel, invoiceBalance, studentBalance } from "@/lib/finance";
+import { invoiceBalance, studentBalance } from "@/lib/finance";
 import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
@@ -148,21 +148,18 @@ function StudentProfile() {
 
       <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2>
       {payments.length ? (
-        <Table head={["رقم السند", "نوع القبض", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
+        <Table head={["رقم السند", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
           {payments.map((p) => {
-            const installment = db.installments.find((i) => i.id === p.installment_id);
-            const type = installment ? installmentLabel(installment) : "دفعة على الحساب";
             return (
               <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
                 <Td className="font-semibold">{p.receipt_no}</Td>
-                <Td>{type}</Td>
+                <Td>{p.note?.trim() || "دفعة"}</Td>
                 <Td>{courseAndClassForInvoice(p.invoice_id)}</Td>
                 <Td className="tabular-nums">{money(p.amount, cur)}</Td>
                 <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
                 <Td>{dateStr(p.paid_at)}</Td>
                 <Td>
                   {p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}
-                  {p.note ? <div className="mt-1 text-xs text-muted-foreground">{p.note}</div> : null}
                 </Td>
                 <Td>
                   <Button variant="ghost" onClick={() => printReceipt(db, p)}>
