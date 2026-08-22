@@ -161,6 +161,112 @@ export function createEnrollmentWithInvoice(
   });
 }
 
+/** Updates an existing enrollment and rebuilds its invoice installments.
+ * Financial values can only be changed while the invoice has no active receipts.
+ */
+export function updateEnrollmentWithInvoice(
+  args: {
+    enrollment_id: ID;
+    price: number;
+    discount: number;
+    registration_fee?: number;
+    discount_reason: string;
+    installments: { due_date: string; amount: number }[];
+  },
+  actor: Actor,
+): void {
+  transact((db) => {
+    const enrollment = db.enrollments.find((e) => e.id === args.enrollment_id);
+    if (!enrollment) throw new Error("التسجيل غير موجود");
+    if (enrollment.status === "cancelled") throw new Error("لا يمكن تعديل تسجيل ملغى");
+
+    const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
+    if (!invoice) throw new Error("فاتورة التسجيل غير موجودة");
+
+    const hasPayments = db.payments.some((p) => p.invoice_id === invoice.id && !p.is_void);
+    if (hasPayments) {
+      throw new Error("لا يمكن تعديل قيمة تسجيل عليه سند قبض. ألغِ السند المالي أولاً ثم عدّل التسجيل.");
+    }
+
+    const fee = Math.max(0, args.registration_fee ?? 0);
+    const tuition = Math.max(0, args.price - args.discount);
+    const total = tuition + fee;
+    const sum = args.installments.reduce((s, i) => s + i.amount, 0);
+    if (args.installments.length > 0 && sum !== tuition) {
+      throw new Error("مجموع الأقساط لا يساوي قيمة الدورة الصافية (بدون رسوم التسجيل)");
+    }
+
+    enrollment.price_snapshot = args.price;
+    enrollment.discount_snapshot = args.discount;
+    enrollment.discount_reason = args.discount_reason;
+    enrollment.updated_at = new Date().toISOString();
+
+    invoice.total = total;
+    invoice.status = total === 0 ? "paid" : "open";
+    invoice.updated_at = new Date().toISOString();
+
+    // Safe because editing is blocked when active receipts exist.
+    db.installments = db.installments.filter((i) => i.invoice_id !== invoice.id);
+
+    if (fee > 0) {
+      db.installments.push({
+        ...baseFields(),
+        invoice_id: invoice.id,
+        due_date: new Date().toISOString().slice(0, 10),
+        amount: fee,
+        status: "due",
+        kind: "registration",
+        seq: 0,
+      });
+    }
+
+    const list = args.installments.length
+      ? args.installments
+      : tuition > 0
+        ? [{ due_date: new Date().toISOString().slice(0, 10), amount: tuition }]
+        : [];
+
+    list.forEach((ins, idx) => {
+      db.installments.push({
+        ...baseFields(),
+        invoice_id: invoice.id,
+        due_date: ins.due_date,
+        amount: ins.amount,
+        status: "due",
+        kind: "installment",
+        seq: idx + 1,
+      });
+    });
+
+    recomputeInvoice(db, invoice.id);
+    audit(db, actor, "enrollments", enrollment.id, "update", `تعديل التسجيل والفاتورة ${invoice.number}`);
+  });
+}
+
+/** Cancels an enrollment and its invoice when no active receipt exists. */
+export function cancelEnrollmentWithInvoice(enrollmentId: ID, actor: Actor): void {
+  transact((db) => {
+    const enrollment = db.enrollments.find((e) => e.id === enrollmentId);
+    if (!enrollment) throw new Error("التسجيل غير موجود");
+    if (enrollment.status === "cancelled") throw new Error("التسجيل ملغى مسبقًا");
+
+    const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
+    if (!invoice) throw new Error("فاتورة التسجيل غير موجودة");
+
+    const hasPayments = db.payments.some((p) => p.invoice_id === invoice.id && !p.is_void);
+    if (hasPayments) {
+      throw new Error("لا يمكن إلغاء تسجيل عليه سند قبض. ألغِ السند المالي أولاً ثم ألغِ التسجيل.");
+    }
+
+    enrollment.status = "cancelled";
+    enrollment.updated_at = new Date().toISOString();
+    invoice.status = "cancelled";
+    invoice.updated_at = new Date().toISOString();
+
+    audit(db, actor, "enrollments", enrollment.id, "cancel", `إلغاء التسجيل والفاتورة ${invoice.number}`);
+  });
+}
+
 /** Records a payment (receipt) against an invoice, optionally targeting one installment. */
 export function recordPayment(
   args: {
