@@ -61,7 +61,7 @@ function ExpensesPage() {
   const totalOperatingExpenses = expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
   const totalPaidPayroll = db.payroll_items
     .filter((p) => p.status === "paid")
-    .reduce((s, p) => s + p.net, 0);
+    .reduce((s, p) => s + p.net + p.advance_deducted, 0);
   const totalCompanyExpenses = totalOperatingExpenses + totalPaidPayroll;
   const totalInc = incomes.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
 
@@ -87,13 +87,13 @@ function ExpensesPage() {
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="المصاريف التشغيلية" value={money(totalOperatingExpenses, cur)} tone="danger" />
-        <Stat label="الرواتب المدفوعة" value={money(totalPaidPayroll, cur)} tone="danger" />
+        <Stat label="تكلفة الرواتب" value={money(totalPaidPayroll, cur)} tone="danger" />
         <Stat label="إجمالي مصروفات الشركة" value={money(totalCompanyExpenses, cur)} tone="danger" />
         <Stat label="المداخيل الأخرى" value={money(totalInc, cur)} tone="success" />
       </div>
 
       <div className="mb-4 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
-        الرواتب تُحسب ضمن إجمالي مصروفات الشركة تلقائيًا، لكنها لا تُسجّل مرة ثانية داخل جدول المصاريف حتى لا يتكرر المبلغ.
+        تكلفة الرواتب تشمل صافي الراتب المدفوع وأي سلفة تم تسويتها مع الراتب، وتُجمع تلقائيًا ضمن إجمالي مصروفات الشركة بدون تسجيلها مرة ثانية داخل جدول المصاريف.
       </div>
 
       <div className="mb-4 flex gap-2">
