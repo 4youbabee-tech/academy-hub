@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
+import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { invoiceBalance, studentBalance } from "@/lib/finance";
+import { installmentLabel, invoiceBalance, studentBalance } from "@/lib/finance";
+import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
   head: () => ({
@@ -28,11 +29,24 @@ function StudentProfile() {
 
   const cur = db.settings.currency;
   const bal = studentBalance(db, student.id);
-  const enrollments = db.enrollments.filter((e) => e.student_id === student.id);
-  const invoices = db.invoices.filter((i) => i.student_id === student.id);
+  const enrollments = db.enrollments
+    .filter((e) => e.student_id === student.id)
+    .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
+  const invoices = db.invoices
+    .filter((i) => i.student_id === student.id)
+    .sort((a, b) => b.issued_at.localeCompare(a.issued_at));
   const payments = db.payments
     .filter((p) => p.student_id === student.id)
     .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
+
+  function courseAndClassForInvoice(invoiceId: string): string {
+    const invoice = db.invoices.find((i) => i.id === invoiceId);
+    const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
+    const klass = db.classes.find((c) => c.id === enrollment?.class_id);
+    const course = db.courses.find((c) => c.id === klass?.course_id);
+    if (!course && !klass) return "—";
+    return `${course?.name ?? "—"}${klass ? ` — ${klass.name}` : ""}`;
+  }
 
   return (
     <div>
@@ -59,7 +73,7 @@ function StudentProfile() {
       </div>
 
       <Panel className="mt-4">
-        <h2 className="text-sm font-bold">البيانات الشخصية</h2>
+        <h2 className="text-sm font-bold">بيانات الطالب</h2>
         <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           <p>تاريخ الميلاد: {dateStr(student.birth_date)}</p>
           <p>الجنس: {student.gender === "male" ? "ذكر" : student.gender === "female" ? "أنثى" : "—"}</p>
@@ -67,6 +81,7 @@ function StudentProfile() {
           <p>
             ولي الأمر: {student.guardian_name || "—"} {student.guardian_phone ? `(${student.guardian_phone})` : ""}
           </p>
+          <p>الهاتف: {student.phone || "—"}</p>
           <p>العنوان: {student.address || "—"}</p>
           {student.notes ? <p className="sm:col-span-2">ملاحظات: {student.notes}</p> : null}
         </div>
@@ -74,23 +89,25 @@ function StudentProfile() {
 
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
-        <Table head={["الصف", "الدورة", "تاريخ التسجيل", "الحالة"]}>
+        <Table head={["الصف", "الدورة", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]}>
           {enrollments.map((e) => {
             const klass = db.classes.find((c) => c.id === e.class_id);
             const course = db.courses.find((c) => c.id === klass?.course_id);
+            const invoice = db.invoices.find((i) => i.enrollment_id === e.id);
             return (
               <tr key={e.id}>
                 <Td>{klass?.name ?? "—"}</Td>
                 <Td>{course?.name ?? "—"}</Td>
                 <Td>{dateStr(e.enrolled_at)}</Td>
+                <Td className="tabular-nums">{money(invoice?.total ?? 0, cur)}</Td>
                 <Td>
                   {e.status === "active"
-                    ? "نشط"
+                    ? <Badge tone="success">نشط</Badge>
                     : e.status === "completed"
-                      ? "منتهٍ"
+                      ? <Badge tone="primary">منتهٍ</Badge>
                       : e.status === "withdrawn"
-                        ? "منسحب"
-                        : "ملغى"}
+                        ? <Badge tone="muted">منسحب</Badge>
+                        : <Badge tone="danger">ملغى</Badge>}
                 </Td>
               </tr>
             );
@@ -102,36 +119,62 @@ function StudentProfile() {
 
       <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2>
       {invoices.length ? (
-        <Table head={["الفاتورة", "الإجمالي", "المتبقي", "الحالة", "التاريخ"]}>
-          {invoices.map((i) => (
-            <tr key={i.id}>
-              <Td>{i.number}</Td>
-              <Td className="tabular-nums">{money(i.total, cur)}</Td>
-              <Td className="tabular-nums">{money(invoiceBalance(db, i.id), cur)}</Td>
-              <Td>{i.status === "paid" ? "مدفوعة" : i.status === "open" ? "مفتوحة" : "ملغاة"}</Td>
-              <Td>{dateStr(i.issued_at)}</Td>
-            </tr>
-          ))}
+        <Table head={["الفاتورة", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ"]}>
+          {invoices.map((i) => {
+            const remaining = invoiceBalance(db, i.id);
+            const paid = i.status === "cancelled" ? 0 : Math.max(0, i.total - remaining);
+            return (
+              <tr key={i.id}>
+                <Td className="font-semibold">{i.number}</Td>
+                <Td>{courseAndClassForInvoice(i.id)}</Td>
+                <Td className="tabular-nums">{money(i.total, cur)}</Td>
+                <Td className="tabular-nums">{money(paid, cur)}</Td>
+                <Td className="tabular-nums">{money(remaining, cur)}</Td>
+                <Td>
+                  {i.status === "paid"
+                    ? <Badge tone="success">مسددة</Badge>
+                    : i.status === "open"
+                      ? <Badge tone="danger">عليها رصيد</Badge>
+                      : <Badge tone="muted">ملغاة</Badge>}
+                </Td>
+                <Td>{dateStr(i.issued_at)}</Td>
+              </tr>
+            );
+          })}
         </Table>
       ) : (
         <Empty text="لا توجد فواتير." />
       )}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold">الإيصالات</h2>
+      <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2>
       {payments.length ? (
-        <Table head={["الإيصال", "المبلغ", "الطريقة", "التاريخ", "الحالة / الملاحظة"]}>
-          {payments.map((p) => (
-            <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
-              <Td>{p.receipt_no}</Td>
-              <Td className="tabular-nums">{money(p.amount, cur)}</Td>
-              <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
-              <Td>{dateStr(p.paid_at)}</Td>
-              <Td>{p.is_void ? `ملغاة — ${p.void_reason}` : p.note || "سارية"}</Td>
-            </tr>
-          ))}
+        <Table head={["رقم السند", "نوع القبض", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
+          {payments.map((p) => {
+            const installment = db.installments.find((i) => i.id === p.installment_id);
+            const type = installment ? installmentLabel(installment) : "دفعة على الحساب";
+            return (
+              <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
+                <Td className="font-semibold">{p.receipt_no}</Td>
+                <Td>{type}</Td>
+                <Td>{courseAndClassForInvoice(p.invoice_id)}</Td>
+                <Td className="tabular-nums">{money(p.amount, cur)}</Td>
+                <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
+                <Td>{dateStr(p.paid_at)}</Td>
+                <Td>
+                  {p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}
+                  {p.note ? <div className="mt-1 text-xs text-muted-foreground">{p.note}</div> : null}
+                </Td>
+                <Td>
+                  <Button variant="ghost" onClick={() => printReceipt(db, p)}>
+                    🖨️ طباعة
+                  </Button>
+                </Td>
+              </tr>
+            );
+          })}
         </Table>
       ) : (
-        <Empty text="لا توجد دفعات." />
+        <Empty text="لا توجد سندات قبض." />
       )}
     </div>
   );
