@@ -1,7 +1,7 @@
 /**
- * Storage boundary used by the domain store. Browser-specific IndexedDB code
- * lives here so a future Electron adapter can use IPC/SQLite without touching
- * React screens or business rules.
+ * Storage boundary used by the domain store. Browser builds use IndexedDB;
+ * the Electron preload transparently routes the same contract through
+ * validated IPC to SQLite without exposing filesystem access to React.
  */
 export interface StorageAdapter<T> {
   load(): Promise<T | undefined>;
@@ -12,6 +12,18 @@ export interface IndexedDbStorageOptions {
   databaseName: string;
   storeName: string;
   key: IDBValidKey;
+}
+
+function desktopStorage<T>(): StorageAdapter<T> | null {
+  if (typeof window === "undefined" || !window.academyDesktop) return null;
+  return {
+    async load() {
+      return (await window.academyDesktop?.database.load()) as T | undefined;
+    },
+    async save(value) {
+      await window.academyDesktop?.database.save(value);
+    },
+  };
 }
 
 export function createIndexedDbStorage<T>(options: IndexedDbStorageOptions): StorageAdapter<T> {
@@ -30,6 +42,8 @@ export function createIndexedDbStorage<T>(options: IndexedDbStorageOptions): Sto
 
   return {
     async load(): Promise<T | undefined> {
+      const desktop = desktopStorage<T>();
+      if (desktop) return desktop.load();
       const database = await open();
       return new Promise((resolve, reject) => {
         const transaction = database.transaction(options.storeName, "readonly");
@@ -47,6 +61,8 @@ export function createIndexedDbStorage<T>(options: IndexedDbStorageOptions): Sto
     },
 
     async save(value: T): Promise<void> {
+      const desktop = desktopStorage<T>();
+      if (desktop) return desktop.save(value);
       const database = await open();
       return new Promise((resolve, reject) => {
         const transaction = database.transaction(options.storeName, "readwrite");

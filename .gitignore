@@ -15,6 +15,9 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+release/
+.academy-vendor/
+*.license
 
 # Wrangler / Cloudflare
 .wrangler/

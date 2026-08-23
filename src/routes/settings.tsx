@@ -26,6 +26,10 @@ function SettingsPage() {
   const [newCategory, setNewCategory] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(db?.settings?.logo_data_url || null);
+  const [desktopInfo, setDesktopInfo] = useState<{ name: string; version: string; packaged: boolean } | null>(null);
+  const [licenseCustomer, setLicenseCustomer] = useState<string | null>(null);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
 
   useEffect(() => {
     if (db) {
@@ -34,6 +38,15 @@ function SettingsPage() {
       setLogoPreview(db.settings?.logo_data_url || null);
     }
   }, [db]);
+
+  useEffect(() => {
+    const api = window.academyDesktop;
+    if (!api) return;
+    void Promise.all([api.app.getInfo(), api.license.getStatus()]).then(([info, license]) => {
+      setDesktopInfo(info);
+      setLicenseCustomer(license.license?.customer ?? null);
+    });
+  }, []);
 
   if (!db) return null;
   if (!allowed("settings.view")) return <Denied />;
@@ -366,6 +379,48 @@ function SettingsPage() {
           هذه الإعدادات تؤثر على طباعة سندات القبض في شاشة الإيصالات والفواتير.
         </p>
       </div>
+
+      {desktopInfo ? (
+        <div className="mt-6 panel p-5">
+          <h2 className="mb-4 text-sm font-bold">🖥️ نسخة Windows</h2>
+          <div className="grid gap-3 text-sm sm:grid-cols-2">
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">إصدار البرنامج</p>
+              <p className="mt-1 font-bold" dir="ltr">{desktopInfo.version}</p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">الترخيص</p>
+              <p className="mt-1 font-bold">{licenseCustomer || "غير معروف"}</p>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3 sm:col-span-2">
+              <p className="text-xs text-muted-foreground">حفظ البيانات</p>
+              <p className="mt-1 font-semibold">SQLite محلي داخل مجلد بيانات مستخدم Windows</p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              disabled={checkingUpdates}
+              onClick={async () => {
+                const api = window.academyDesktop;
+                if (!api) return;
+                setCheckingUpdates(true);
+                try {
+                  const result = await api.app.checkForUpdates();
+                  setUpdateMessage(result.message);
+                } catch (e) {
+                  setUpdateMessage((e as Error).message || "تعذر فحص التحديثات.");
+                } finally {
+                  setCheckingUpdates(false);
+                }
+              }}
+            >
+              {checkingUpdates ? "جارٍ الفحص…" : "فحص التحديثات"}
+            </Button>
+            {updateMessage ? <p className="text-sm text-muted-foreground">{updateMessage}</p> : null}
+          </div>
+        </div>
+      ) : null}
 
       {canEdit && (
         <div className="mt-6 flex justify-end">
