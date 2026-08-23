@@ -2,9 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Button, Empty, Field, Input, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { invoiceBalance, profitAndLoss } from "@/lib/finance";
+import { Button, Empty, Field, Input, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
+import { invoiceFinancials, profitAndLoss } from "@/lib/finance";
 import { fromMinor, money, today } from "@/lib/format";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -24,18 +25,13 @@ function ReportsPage() {
   const [from, setFrom] = useState(today().slice(0, 7) + "-01");
   const [to, setTo] = useState(today());
 
-  if (!db) return null;
-  if (!allowed("reports.view")) return <Denied />;
-
-  const cur = db.settings.currency;
-
   const profitData = useMemo(() => {
-    if (type !== "profit") return null;
+    if (!db || type !== "profit") return null;
     return profitAndLoss(db, from, to);
   }, [db, from, to, type]);
 
   const balances = useMemo(() => {
-    if (type !== "balances") return [];
+    if (!db || type !== "balances") return [];
 
     return db.invoices
       .filter((inv) => inv.status !== "cancelled")
@@ -44,13 +40,18 @@ function ReportsPage() {
         const enrollment = db.enrollments.find((e) => e.id === inv.enrollment_id);
         const klass = db.classes.find((k) => k.id === enrollment?.class_id);
         const course = db.courses.find((c) => c.id === klass?.course_id);
-        const due = Math.max(0, invoiceBalance(db, inv.id));
-        const paid = Math.max(0, inv.total - due);
-        return { inv, student, klass, course, paid, due };
+        const financials = invoiceFinancials(db, inv);
+        return { inv, student, klass, course, paid: financials.paid, due: financials.due };
       })
       .filter((row) => row.due > 0)
       .sort((a, b) => b.due - a.due);
   }, [db, type]);
+  const pagination = usePagination(balances, type);
+
+  if (!db) return null;
+  if (!allowed("reports.view")) return <Denied />;
+
+  const cur = db.settings.currency;
 
   function exportCSV() {
     let headers: string[] = [];
@@ -177,8 +178,9 @@ function ReportsPage() {
           {balances.length === 0 ? (
             <Empty text="لا توجد أرصدة متبقية على الطلاب." />
           ) : (
+            <>
             <Table head={["الطالب", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", ""]}>
-              {balances.map((row) => (
+              {pagination.rows.map((row) => (
                 <tr key={row.inv.id}>
                   <Td className="font-semibold">{row.student?.full_name || "—"}</Td>
                   <Td>{row.course?.name ? `${row.course.name}${row.klass ? ` — ${row.klass.name}` : ""}` : "—"}</Td>
@@ -195,6 +197,18 @@ function ReportsPage() {
                 </tr>
               ))}
             </Table>
+            <PaginationControls
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              from={pagination.from}
+              to={pagination.to}
+              onPrevious={pagination.previous}
+              onNext={pagination.next}
+              onPageSizeChange={pagination.setPageSize}
+            />
+            </>
           )}
         </div>
       ) : null}

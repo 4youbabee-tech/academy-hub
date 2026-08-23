@@ -1,42 +1,19 @@
 import type { Base, CollectionKey, DB, ID, Settings, User } from "./types";
+import { createIndexedDbStorage } from "./storage";
+import {
+  assertClassUpdate,
+  assertStudentUpdate,
+  assertUserCreate,
+  assertUserDelete,
+  assertUserUpdate,
+} from "./domain-guards";
 
 const DB_NAME = "institute-db";
 const STORE = "kv";
 const KEY = "main";
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
-/* ---------------- IndexedDB primitives ---------------- */
-
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbGet<T>(key: string): Promise<T | undefined> {
-  const db = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).get(key);
-    req.onsuccess = () => resolve(req.result as T | undefined);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbSet(key: string, value: unknown): Promise<void> {
-  const db = await openIdb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
+const storage = createIndexedDbStorage<DB>({ databaseName: DB_NAME, storeName: STORE, key: KEY });
 
 /* ---------------- helpers ---------------- */
 
@@ -116,8 +93,8 @@ function normalizeDb(value: unknown): DB {
     ...rest
   } = raw;
 
-  const rawSettings = raw.settings && typeof raw.settings === "object"
-    ? (raw.settings as Record<string, unknown>)
+  const rawSettings = raw["settings"] && typeof raw["settings"] === "object"
+    ? (raw["settings"] as Record<string, unknown>)
     : {};
 
   const {
@@ -161,10 +138,10 @@ export async function loadDb(): Promise<DB> {
   if (current) return current;
   if (loading) return loading;
   loading = (async () => {
-    const stored = await idbGet<unknown>(KEY);
+    const stored = await storage.load();
     if (stored) {
       current = normalizeDb(stored);
-      await idbSet(KEY, current);
+      await storage.save(current);
     } else {
       const fresh = emptyDb();
       const now = new Date().toISOString();
@@ -188,7 +165,7 @@ export async function loadDb(): Promise<DB> {
         at: now,
       });
       current = fresh;
-      await idbSet(KEY, fresh);
+      await storage.save(fresh);
     }
     notify();
     return current;
@@ -200,8 +177,17 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 function persist() {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
-    if (current) void idbSet(KEY, current);
+    if (current) void storage.save(current).catch((error: unknown) => console.error("تعذر حفظ قاعدة البيانات المحلية", error));
   }, 120);
+}
+
+/** Ensures pending in-memory changes are written before an explicit export/close workflow. */
+export async function flushDb(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (current) await storage.save(current);
 }
 
 /** Single atomic mutation: the whole recipe applies or nothing does. */
@@ -256,6 +242,7 @@ export function insert<K extends CollectionKey>(
 ): ID {
   const record = { ...baseFields(), ...data } as DB[K][number];
   transact((db) => {
+    if (key === "users") assertUserCreate(db, record as User, actor);
     (db[key] as DB[K][number][]).push(record);
     audit(db, actor, key, (record as Base).id, "create", detail);
   });
@@ -273,6 +260,15 @@ export function update<K extends CollectionKey>(
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);
     if (idx === -1) throw new Error("السجل غير موجود");
+    if (key === "students") {
+      assertStudentUpdate(db, list[idx] as DB["students"][number], patch as Partial<DB["students"][number]>);
+    }
+    if (key === "classes") {
+      assertClassUpdate(db, list[idx] as DB["classes"][number], patch as Partial<DB["classes"][number]>);
+    }
+    if (key === "users") {
+      assertUserUpdate(db, list[idx] as User, patch as Partial<User>, actor);
+    }
     list[idx] = { ...list[idx], ...patch, updated_at: new Date().toISOString() } as Base;
     audit(db, actor, key, id, "update", detail);
   });
@@ -283,6 +279,7 @@ export function remove<K extends CollectionKey>(key: K, id: ID, actor: Actor, de
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);
     if (idx === -1) return;
+    if (key === "users") assertUserDelete(db, list[idx] as User, actor);
     list.splice(idx, 1);
     audit(db, actor, key, id, "delete", detail);
   });
@@ -291,13 +288,23 @@ export function remove<K extends CollectionKey>(key: K, id: ID, actor: Actor, de
 /* ---------------- sequence helpers ---------------- */
 
 export function nextReceiptNo(db: DB): string {
-  const n = db.settings.receipt_next;
-  db.settings.receipt_next = n + 1;
-  return `${db.settings.receipt_prefix}${String(n).padStart(5, "0")}`;
+  let n = Math.max(1, db.settings.receipt_next);
+  let candidate = "";
+  do {
+    candidate = `${db.settings.receipt_prefix}${String(n).padStart(5, "0")}`;
+    n += 1;
+  } while (db.payments.some((payment) => payment.receipt_no === candidate));
+  db.settings.receipt_next = n;
+  return candidate;
 }
 
 export function nextStudentCode(db: DB): string {
-  const n = db.settings.student_code_next;
-  db.settings.student_code_next = n + 1;
-  return `${db.settings.student_code_prefix}${String(n).padStart(4, "0")}`;
+  let n = Math.max(1, db.settings.student_code_next);
+  let candidate = "";
+  do {
+    candidate = `${db.settings.student_code_prefix}${String(n).padStart(4, "0")}`;
+    n += 1;
+  } while (db.students.some((student) => student.code === candidate));
+  db.settings.student_code_next = n;
+  return candidate;
 }

@@ -1,4 +1,4 @@
-/ Domain types. Money is stored in minor units (integers) everywhere.
+// Domain types. Money is stored in minor units (integers) everywhere.
 
 export type ID = string;
 
@@ -119,8 +119,13 @@ export interface Payment extends Base {
   paid_at: string;
   is_void: boolean;
   void_reason: string;
+  voided_at?: string | null;
   user_id: ID | null;
   note?: string;
+  /** Immutable financial state immediately after issuing this receipt. */
+  invoice_total_snapshot?: number;
+  paid_after_snapshot?: number;
+  due_after_snapshot?: number;
 }
 
 export interface Employee extends Base {
@@ -140,6 +145,8 @@ export interface PayrollItem extends Base {
   bonus: number;
   deduction: number;
   advance_deducted: number;
+  /** Exact advances settled by this payroll item. */
+  advance_ids?: ID[];
   net: number;
   paid_at: string | null;
   status: "draft" | "paid";

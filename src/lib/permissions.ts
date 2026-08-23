@@ -23,7 +23,11 @@ const MATRIX: Record<RoleKey, string[]> = {
     "expenses.*",
     "reports.*",
     "settings.*",
-    "users.*",
+    // Directors manage non-owner accounts; owner-specific guards are enforced in the data layer.
+    "users.view",
+    "users.create",
+    "users.update",
+    "users.delete",
     "audit.view",
     "backup.*",
   ],

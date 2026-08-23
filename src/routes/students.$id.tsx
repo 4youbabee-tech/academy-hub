@@ -3,7 +3,7 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { invoiceBalance, studentBalance } from "@/lib/finance";
+import { invoiceFinancials, studentBalance } from "@/lib/finance";
 import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
@@ -23,27 +23,29 @@ function StudentProfile() {
   const { db, allowed } = useApp();
   if (!db) return null;
   if (!allowed("students.view")) return <Denied />;
+  const currentDb = db;
+  const canViewFinance = allowed("finance.view");
 
-  const student = db.students.find((s) => s.id === id);
+  const student = currentDb.students.find((s) => s.id === id);
   if (!student) return <Empty text="الطالب غير موجود." />;
 
-  const cur = db.settings.currency;
-  const bal = studentBalance(db, student.id);
-  const enrollments = db.enrollments
+  const cur = currentDb.settings.currency;
+  const bal = studentBalance(currentDb, student.id);
+  const enrollments = currentDb.enrollments
     .filter((e) => e.student_id === student.id)
     .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
-  const invoices = db.invoices
+  const invoices = currentDb.invoices
     .filter((i) => i.student_id === student.id)
     .sort((a, b) => b.issued_at.localeCompare(a.issued_at));
-  const payments = db.payments
+  const payments = currentDb.payments
     .filter((p) => p.student_id === student.id)
     .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
 
   function courseAndClassForInvoice(invoiceId: string): string {
-    const invoice = db.invoices.find((i) => i.id === invoiceId);
-    const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
-    const klass = db.classes.find((c) => c.id === enrollment?.class_id);
-    const course = db.courses.find((c) => c.id === klass?.course_id);
+    const invoice = currentDb.invoices.find((i) => i.id === invoiceId);
+    const enrollment = currentDb.enrollments.find((e) => e.id === invoice?.enrollment_id);
+    const klass = currentDb.classes.find((c) => c.id === enrollment?.class_id);
+    const course = currentDb.courses.find((c) => c.id === klass?.course_id);
     if (!course && !klass) return "—";
     return `${course?.name ?? "—"}${klass ? ` — ${klass.name}` : ""}`;
   }
@@ -66,9 +68,13 @@ function StudentProfile() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="إجمالي المستحق" value={money(bal.billed, cur)} />
-        <Stat label="المقبوض" value={money(bal.paid, cur)} tone="success" />
-        <Stat label="المتبقي" value={money(bal.due, cur)} tone={bal.due > 0 ? "danger" : "success"} />
+        {canViewFinance ? (
+          <>
+            <Stat label="إجمالي المستحق" value={money(bal.billed, cur)} />
+            <Stat label="المقبوض" value={money(bal.paid, cur)} tone="success" />
+            <Stat label="المتبقي" value={money(bal.due, cur)} tone={bal.due > 0 ? "danger" : "success"} />
+          </>
+        ) : null}
         <Stat label="عدد التسجيلات" value={String(enrollments.length)} />
       </div>
 
@@ -89,17 +95,19 @@ function StudentProfile() {
 
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
-        <Table head={["الصف", "الدورة", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]}>
+        <Table head={canViewFinance
+          ? ["الصف", "الدورة", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]
+          : ["الصف", "الدورة", "تاريخ التسجيل", "الحالة"]}>
           {enrollments.map((e) => {
-            const klass = db.classes.find((c) => c.id === e.class_id);
-            const course = db.courses.find((c) => c.id === klass?.course_id);
-            const invoice = db.invoices.find((i) => i.enrollment_id === e.id);
+            const klass = currentDb.classes.find((c) => c.id === e.class_id);
+            const course = currentDb.courses.find((c) => c.id === klass?.course_id);
+            const invoice = currentDb.invoices.find((i) => i.enrollment_id === e.id);
             return (
               <tr key={e.id}>
                 <Td>{klass?.name ?? "—"}</Td>
                 <Td>{course?.name ?? "—"}</Td>
                 <Td>{dateStr(e.enrolled_at)}</Td>
-                <Td className="tabular-nums">{money(invoice?.total ?? 0, cur)}</Td>
+                {canViewFinance ? <Td className="tabular-nums">{money(invoice?.total ?? 0, cur)}</Td> : null}
                 <Td>
                   {e.status === "active"
                     ? <Badge tone="success">نشط</Badge>
@@ -117,19 +125,18 @@ function StudentProfile() {
         <Empty text="لا توجد تسجيلات." />
       )}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2>
-      {invoices.length ? (
+      {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2> : null}
+      {canViewFinance && invoices.length ? (
         <Table head={["الفاتورة", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ"]}>
           {invoices.map((i) => {
-            const remaining = invoiceBalance(db, i.id);
-            const paid = i.status === "cancelled" ? 0 : Math.max(0, i.total - remaining);
+            const financials = invoiceFinancials(currentDb, i);
             return (
               <tr key={i.id}>
                 <Td className="font-semibold">{i.number}</Td>
                 <Td>{courseAndClassForInvoice(i.id)}</Td>
                 <Td className="tabular-nums">{money(i.total, cur)}</Td>
-                <Td className="tabular-nums">{money(paid, cur)}</Td>
-                <Td className="tabular-nums">{money(remaining, cur)}</Td>
+                <Td className="tabular-nums">{money(financials.paid, cur)}</Td>
+                <Td className="tabular-nums">{money(financials.due, cur)}</Td>
                 <Td>
                   {i.status === "paid"
                     ? <Badge tone="success">مسددة</Badge>
@@ -142,12 +149,12 @@ function StudentProfile() {
             );
           })}
         </Table>
-      ) : (
+      ) : canViewFinance ? (
         <Empty text="لا توجد فواتير." />
-      )}
+      ) : null}
 
-      <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2>
-      {payments.length ? (
+      {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2> : null}
+      {canViewFinance && payments.length ? (
         <Table head={["رقم السند", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
           {payments.map((p) => {
             return (
@@ -162,17 +169,19 @@ function StudentProfile() {
                   {p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}
                 </Td>
                 <Td>
-                  <Button variant="ghost" onClick={() => printReceipt(db, p)}>
-                    🖨️ طباعة
-                  </Button>
+                  {!p.is_void && currentDb.invoices.find((invoice) => invoice.id === p.invoice_id)?.status !== "cancelled" ? (
+                    <Button variant="ghost" onClick={() => printReceipt(currentDb, p)}>
+                      🖨️ طباعة
+                    </Button>
+                  ) : null}
                 </Td>
               </tr>
             );
           })}
         </Table>
-      ) : (
+      ) : canViewFinance ? (
         <Empty text="لا توجد سندات قبض." />
-      )}
+      ) : null}
     </div>
   );
 }

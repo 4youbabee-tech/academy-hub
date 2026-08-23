@@ -20,6 +20,7 @@ export function printReceipt(db: DB, payment: Payment): void {
   const s = db.settings;
   const student = db.students.find((x) => x.id === payment.student_id);
   const invoice = db.invoices.find((i) => i.id === payment.invoice_id);
+  if (payment.is_void || invoice?.status === "cancelled") return;
   const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
   const klass = db.classes.find((c) => c.id === enrollment?.class_id);
   const course = db.courses.find((c) => c.id === klass?.course_id);
@@ -33,8 +34,11 @@ export function printReceipt(db: DB, payment: Payment): void {
 
   const currentIndex = validPayments.findIndex((p) => p.id === payment.id);
   const throughCurrent = currentIndex >= 0 ? validPayments.slice(0, currentIndex + 1) : [];
-  const paidThroughThisReceipt = throughCurrent.reduce((sum, p) => sum + p.amount, 0);
-  const remainingAfterThisReceipt = Math.max(0, (invoice?.total ?? 0) - paidThroughThisReceipt);
+  const paidThroughThisReceipt = payment.paid_after_snapshot
+    ?? throughCurrent.reduce((sum, p) => sum + p.amount, 0);
+  const invoiceTotal = payment.invoice_total_snapshot ?? invoice?.total ?? 0;
+  const remainingAfterThisReceipt = payment.due_after_snapshot
+    ?? Math.max(0, invoiceTotal - paidThroughThisReceipt);
 
   const width = (s.receipt_paper_size || "A5") === "A4" ? "210mm" : "148mm";
   const methodLabel = payment.method === "cash" ? "نقدًا" : payment.method === "bank" ? "مصرف" : "أخرى";
@@ -47,7 +51,7 @@ export function printReceipt(db: DB, payment: Payment): void {
 <title>سند قبض ${esc(payment.receipt_no)}</title>
 <style>
   @page { size: ${(s.receipt_paper_size || "A5") === "A4" ? "A4" : "A5"}; margin: 8mm; }
-  body { font-family: 'Cairo','Segoe UI',Arial,sans-serif; direction:rtl; background:#fff; color:#111; margin:0; padding:10px; }
+  body { font-family:'Segoe UI',Tahoma,Arial,sans-serif; direction:rtl; background:#fff; color:#111; margin:0; padding:10px; }
   .receipt { max-width:${width}; margin:auto; border:1px solid #d5d5d5; border-radius:10px; padding:16px; }
   .header { text-align:center; border-bottom:2px solid #14532d20; padding-bottom:8px; margin-bottom:10px; }
   .logo { max-height:64px; max-width:120px; object-fit:contain; margin-bottom:6px; }
@@ -78,15 +82,14 @@ export function printReceipt(db: DB, payment: Payment): void {
   ${s.receipt_show_payment_method !== false ? row("طريقة الدفع", methodLabel) : ""}
 
   <div class="summary">
-    ${row("إجمالي المستحق", money(invoice?.total ?? 0, s.currency))}
+    ${row("إجمالي المستحق", money(invoiceTotal, s.currency))}
     ${row("المقبوض حتى هذا السند", money(paidThroughThisReceipt, s.currency))}
     ${row("المتبقي بعد هذا السند", money(remainingAfterThisReceipt, s.currency))}
   </div>
 
   <div class="total">المقبوض بهذا السند: ${esc(money(payment.amount, s.currency))}</div>
-  ${payment.is_void ? `<div class="void">سند ملغى — ${esc(payment.void_reason)}</div>` : ""}
   <div class="sign"><span>توقيع المحاسب: ..................</span><span>توقيع المستلم: ..................</span></div>
   <div class="footer">${esc(s.receipt_footer_text || "شكراً لثقتكم بنا")}</div>
-</div><script>setTimeout(function(){window.print();},400);<\/script></body></html>`);
+</div><script>setTimeout(function(){window.print();},400);</script></body></html>`);
   win.document.close();
 }

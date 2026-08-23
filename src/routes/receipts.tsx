@@ -2,11 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { invoiceBalance, recordPayment, voidPayment } from "@/lib/finance";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
+import { invoiceBalance, invoiceFinancials, recordPayment, voidPayment } from "@/lib/finance";
 import { dateStr, money, toMinor } from "@/lib/format";
 import { printReceipt } from "@/lib/receipt-print";
 import type { Payment } from "@/lib/types";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/receipts")({
   head: () => ({
@@ -20,7 +22,7 @@ export const Route = createFileRoute("/receipts")({
 
 type Section = "invoices" | "receipts";
 type ReceiptFilter = "all" | "paid" | "void";
-type InvoiceFilter = "all" | "open" | "paid";
+type InvoiceFilter = "all" | "open" | "paid" | "cancelled";
 
 function ReceiptsPage() {
   const { db, actor, allowed } = useApp();
@@ -35,25 +37,28 @@ function ReceiptsPage() {
   const [error, setError] = useState<string | null>(null);
   const [voidFor, setVoidFor] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const debouncedQ = useDebouncedValue(q);
 
-  if (!db) return null;
-  if (!allowed("finance.view")) return <Denied />;
-  const canPay = allowed("finance.pay") || allowed("finance.create");
-  const cur = db.settings.currency;
-
-  const openInvoices = useMemo(() => db.invoices.filter((i) => i.status === "open"), [db]);
+  const openInvoices = useMemo(
+    () => (db ? db.invoices.filter((invoice) => invoice.status === "open" && invoiceBalance(db, invoice.id) > 0) : []),
+    [db],
+  );
 
   const invoiceRows = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    if (!db) return [];
+    const term = debouncedQ.trim().toLowerCase();
+    const students = new Map(db.students.map((student) => [student.id, student]));
+    const enrollments = new Map(db.enrollments.map((enrollment) => [enrollment.id, enrollment]));
+    const classes = new Map(db.classes.map((klass) => [klass.id, klass]));
+    const courses = new Map(db.courses.map((course) => [course.id, course]));
     return db.invoices
       .map((inv) => {
-        const student = db.students.find((s) => s.id === inv.student_id);
-        const enrollment = db.enrollments.find((e) => e.id === inv.enrollment_id);
-        const klass = db.classes.find((k) => k.id === enrollment?.class_id);
-        const course = db.courses.find((c) => c.id === klass?.course_id);
-        const balance = invoiceBalance(db, inv.id);
-        const paid = Math.max(0, inv.total - balance);
-        return { inv, student, enrollment, klass, course, balance, paid };
+        const student = students.get(inv.student_id);
+        const enrollment = enrollments.get(inv.enrollment_id);
+        const klass = enrollment ? classes.get(enrollment.class_id) : undefined;
+        const course = klass ? courses.get(klass.course_id) : undefined;
+        const financials = invoiceFinancials(db, inv);
+        return { inv, student, enrollment, klass, course, balance: financials.due, paid: financials.paid };
       })
       .filter((row) => (invoiceFilter === "all" ? true : row.inv.status === invoiceFilter))
       .filter((row) => {
@@ -67,10 +72,11 @@ function ReceiptsPage() {
         );
       })
       .sort((a, b) => b.inv.issued_at.localeCompare(a.inv.issued_at));
-  }, [db, q, invoiceFilter]);
+  }, [db, debouncedQ, invoiceFilter]);
 
   const receipts = useMemo(() => {
-    const term = q.trim().toLowerCase();
+    if (!db) return [];
+    const term = debouncedQ.trim().toLowerCase();
     let list = db.payments.slice();
 
     if (receiptFilter === "paid") list = list.filter((p) => !p.is_void);
@@ -90,19 +96,31 @@ function ReceiptsPage() {
     }
 
     return list.sort((a, b) => b.paid_at.localeCompare(a.paid_at));
-  }, [db, q, receiptFilter]);
+  }, [db, debouncedQ, receiptFilter]);
 
-  const totalReceipts = db.payments.filter((p) => !p.is_void).length;
-  const totalAmount = db.payments.filter((p) => !p.is_void).reduce((sum, p) => sum + p.amount, 0);
-  const totalBilled = db.invoices.filter((i) => i.status !== "cancelled").reduce((sum, i) => sum + i.total, 0);
-  const totalDue = db.invoices.filter((i) => i.status !== "cancelled").reduce((sum, i) => sum + invoiceBalance(db, i.id), 0);
+  const invoicePagination = usePagination(invoiceRows, `${debouncedQ}|${invoiceFilter}`);
+  const receiptPagination = usePagination(receipts, `${debouncedQ}|${receiptFilter}`);
 
-  const currentInvoice = payFor ? db.invoices.find((i) => i.id === payFor) ?? null : null;
-  const currentStudent = currentInvoice ? db.students.find((s) => s.id === currentInvoice.student_id) ?? null : null;
-  const currentEnrollment = currentInvoice ? db.enrollments.find((e) => e.id === currentInvoice.enrollment_id) ?? null : null;
-  const currentClass = currentEnrollment ? db.classes.find((k) => k.id === currentEnrollment.class_id) ?? null : null;
-  const currentCourse = currentClass ? db.courses.find((c) => c.id === currentClass.course_id) ?? null : null;
-  const invoiceRemaining = currentInvoice ? invoiceBalance(db, currentInvoice.id) : 0;
+  if (!db) return null;
+  if (!allowed("finance.view")) return <Denied />;
+  const currentDb = db;
+  const canPay = allowed("finance.pay") || allowed("finance.create");
+  const canVoid = allowed("finance.void") || canPay;
+  const cur = currentDb.settings.currency;
+
+  const activeInvoiceIds = new Set(currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").map((invoice) => invoice.id));
+  const validPayments = currentDb.payments.filter((payment) => !payment.is_void && activeInvoiceIds.has(payment.invoice_id));
+  const totalReceipts = validPayments.length;
+  const totalAmount = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const totalBilled = currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total, 0);
+  const totalDue = currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoiceBalance(currentDb, invoice.id), 0);
+
+  const currentInvoice = payFor ? currentDb.invoices.find((i) => i.id === payFor) ?? null : null;
+  const currentStudent = currentInvoice ? currentDb.students.find((s) => s.id === currentInvoice.student_id) ?? null : null;
+  const currentEnrollment = currentInvoice ? currentDb.enrollments.find((e) => e.id === currentInvoice.enrollment_id) ?? null : null;
+  const currentClass = currentEnrollment ? currentDb.classes.find((k) => k.id === currentEnrollment.class_id) ?? null : null;
+  const currentCourse = currentClass ? currentDb.courses.find((c) => c.id === currentClass.course_id) ?? null : null;
+  const invoiceRemaining = currentInvoice ? invoiceBalance(currentDb, currentInvoice.id) : 0;
 
   function fillPaymentForm(invoiceId: string | null) {
     setPayFor(invoiceId);
@@ -186,6 +204,7 @@ function ReceiptsPage() {
             <option value="all">كل الفواتير</option>
             <option value="open">عليها رصيد</option>
             <option value="paid">مسددة</option>
+            <option value="cancelled">ملغاة</option>
           </Select>
         ) : (
           <Select className="w-44" value={receiptFilter} onChange={(e) => setReceiptFilter(e.target.value as ReceiptFilter)}>
@@ -200,8 +219,9 @@ function ReceiptsPage() {
         invoiceRows.length === 0 ? (
           <Empty text="لا توجد فواتير مطابقة." />
         ) : (
+          <>
           <Table head={["الفاتورة", "الطالب", "الدورة / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
-            {invoiceRows.map(({ inv, student, course, klass, balance, paid }) => (
+            {invoicePagination.rows.map(({ inv, student, course, klass, balance, paid }) => (
               <tr key={inv.id}>
                 <Td className="font-semibold">{inv.number}</Td>
                 <Td>
@@ -232,17 +252,30 @@ function ReceiptsPage() {
               </tr>
             ))}
           </Table>
+          <PaginationControls
+            page={invoicePagination.page}
+            pageCount={invoicePagination.pageCount}
+            pageSize={invoicePagination.pageSize}
+            total={invoicePagination.total}
+            from={invoicePagination.from}
+            to={invoicePagination.to}
+            onPrevious={invoicePagination.previous}
+            onNext={invoicePagination.next}
+            onPageSizeChange={invoicePagination.setPageSize}
+          />
+          </>
         )
       ) : receipts.length === 0 ? (
         <Empty text="لا توجد سندات قبض مطابقة." />
       ) : (
+        <>
         <Table head={["رقم السند", "الطالب", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
-          {receipts.map((p) => {
-            const student = db.students.find((s) => s.id === p.student_id);
-            const invoice = db.invoices.find((i) => i.id === p.invoice_id);
-            const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
-            const klass = db.classes.find((k) => k.id === enrollment?.class_id);
-            const course = db.courses.find((c) => c.id === klass?.course_id);
+          {receiptPagination.rows.map((p) => {
+            const student = currentDb.students.find((s) => s.id === p.student_id);
+            const invoice = currentDb.invoices.find((i) => i.id === p.invoice_id);
+            const enrollment = currentDb.enrollments.find((e) => e.id === invoice?.enrollment_id);
+            const klass = currentDb.classes.find((k) => k.id === enrollment?.class_id);
+            const course = currentDb.courses.find((c) => c.id === klass?.course_id);
 
             return (
               <tr key={p.id} className={p.is_void ? "opacity-60" : ""}>
@@ -260,12 +293,12 @@ function ReceiptsPage() {
                 <Td>{p.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
                 <Td>
                   <div className="flex gap-1">
-                    {!p.is_void ? (
+                    {!p.is_void && invoice?.status !== "cancelled" ? (
                       <>
-                        <Button variant="ghost" onClick={() => printReceipt(db, p)}>
+                        <Button variant="ghost" onClick={() => printReceipt(currentDb, p)}>
                           🖨️
                         </Button>
-                        {canPay ? (
+                        {canVoid ? (
                           <Button variant="ghost" onClick={() => setVoidFor(p.id)}>
                             إلغاء
                           </Button>
@@ -278,6 +311,18 @@ function ReceiptsPage() {
             );
           })}
         </Table>
+        <PaginationControls
+          page={receiptPagination.page}
+          pageCount={receiptPagination.pageCount}
+          pageSize={receiptPagination.pageSize}
+          total={receiptPagination.total}
+          from={receiptPagination.from}
+          to={receiptPagination.to}
+          onPrevious={receiptPagination.previous}
+          onNext={receiptPagination.next}
+          onPageSizeChange={receiptPagination.setPageSize}
+        />
+        </>
       )}
 
       <Modal open={!!payFor} title="سند قبض جديد" onClose={() => setPayFor(null)}>
@@ -286,10 +331,10 @@ function ReceiptsPage() {
             <Select value={payFor || ""} onChange={(e) => fillPaymentForm(e.target.value || null)}>
               <option value="">— اختر فاتورة —</option>
               {openInvoices.map((inv) => {
-                const student = db.students.find((s) => s.id === inv.student_id);
+                const student = currentDb.students.find((s) => s.id === inv.student_id);
                 return (
                   <option key={inv.id} value={inv.id}>
-                    {inv.number} — {student?.full_name || "—"} (المتبقي: {money(invoiceBalance(db, inv.id), cur)})
+                    {inv.number} — {student?.full_name || "—"} (المتبقي: {money(invoiceBalance(currentDb, inv.id), cur)})
                   </option>
                 );
               })}

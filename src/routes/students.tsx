@@ -2,11 +2,14 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td, Textarea } from "@/components/ui-kit";
 import { insert, nextStudentCode, snapshot, transact, update } from "@/lib/db";
-import { studentBalance } from "@/lib/finance";
+import { studentBalanceMap } from "@/lib/finance";
 import { money } from "@/lib/format";
 import type { Student } from "@/lib/types";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePagination } from "@/hooks/use-pagination";
+import { archiveStudent, restoreStudent } from "@/lib/records";
 
 export const Route = createFileRoute("/students")({
   head: () => ({
@@ -41,10 +44,11 @@ function StudentsPage() {
   const [restoreFor, setRestoreFor] = useState<Student | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const debouncedQ = useDebouncedValue(q);
 
   const rows = useMemo(() => {
     if (!db) return [];
-    const term = q.trim().toLowerCase();
+    const term = debouncedQ.trim().toLowerCase();
     return db.students
       .filter((s) => {
         if (status === "archived") return s.status === "archived";
@@ -59,11 +63,32 @@ function StudentsPage() {
           : true,
       )
       .sort((a, b) => a.full_name.localeCompare(b.full_name, "ar"));
-  }, [db, q, status]);
+  }, [db, debouncedQ, status]);
+
+  const balances = useMemo(() => (db ? studentBalanceMap(db) : new Map()), [db]);
+  const academicLabels = useMemo(() => {
+    const result = new Map<string, string[]>();
+    if (!db) return result;
+    const classes = new Map(db.classes.map((klass) => [klass.id, klass]));
+    const courses = new Map(db.courses.map((course) => [course.id, course]));
+    for (const enrollment of db.enrollments) {
+      if (enrollment.status !== "active") continue;
+      const klass = classes.get(enrollment.class_id);
+      const course = klass ? courses.get(klass.course_id) : undefined;
+      const label = course?.name && klass?.name
+        ? `${course.name} — ${klass.name}`
+        : course?.name || klass?.name || "—";
+      result.set(enrollment.student_id, [...(result.get(enrollment.student_id) ?? []), label]);
+    }
+    return result;
+  }, [db]);
+  const pagination = usePagination(rows, `${debouncedQ}|${status}`);
 
   if (!db) return null;
   if (!allowed("students.view")) return <Denied />;
-  const canEdit = allowed("students.create");
+  const canCreate = allowed("students.create");
+  const canEdit = allowed("students.update");
+  const canViewFinance = allowed("finance.view");
   const archivedCount = db.students.filter((s) => s.status === "archived").length;
   const visibleCount = db.students.length - archivedCount;
 
@@ -134,13 +159,7 @@ function StudentsPage() {
   function confirmArchive() {
     if (!archiveFor) return;
     try {
-      update(
-        "students",
-        archiveFor.id,
-        { status: "archived", archived_at: new Date().toISOString() },
-        actor,
-        `أرشفة الطالب ${archiveFor.full_name}`,
-      );
+      archiveStudent(archiveFor.id, actor);
       setArchiveFor(null);
     } catch (e) {
       setError((e as Error).message);
@@ -150,13 +169,7 @@ function StudentsPage() {
   function confirmRestore() {
     if (!restoreFor) return;
     try {
-      update(
-        "students",
-        restoreFor.id,
-        { status: "active", archived_at: null },
-        actor,
-        `استرجاع الطالب ${restoreFor.full_name} من الأرشيف`,
-      );
+      restoreStudent(restoreFor.id, actor);
       setRestoreFor(null);
     } catch (e) {
       setError((e as Error).message);
@@ -170,7 +183,7 @@ function StudentsPage() {
       <PageHeader
         title="الطلاب"
         subtitle={`${visibleCount} طالب — ${archivedCount} في الأرشيف`}
-        actions={canEdit ? <Button onClick={startAdd}>+ طالب جديد</Button> : null}
+        actions={canCreate ? <Button onClick={startAdd}>+ طالب جديد</Button> : null}
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
@@ -185,16 +198,13 @@ function StudentsPage() {
       </div>
 
       {rows.length ? (
-        <Table head={["الرمز", "الاسم", "المستوى", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
-          {rows.map((s) => {
-            const bal = studentBalance(db, s.id);
-            const activeEnrollments = db.enrollments.filter((e) => e.student_id === s.id && e.status === "active");
-            const enrollmentLabels = activeEnrollments.map((e) => {
-              const klass = db.classes.find((k) => k.id === e.class_id);
-              const course = db.courses.find((c) => c.id === klass?.course_id);
-              if (course?.name && klass?.name) return `${course.name} — ${klass.name}`;
-              return course?.name || klass?.name || "—";
-            });
+        <>
+        <Table head={canViewFinance
+          ? ["الرمز", "الاسم", "المستوى", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
+          : ["الرمز", "الاسم", "المستوى", "الدورة / الصف", "الحالة", ""]}>
+          {pagination.rows.map((s) => {
+            const bal = balances.get(s.id) ?? { billed: 0, paid: 0, due: 0 };
+            const enrollmentLabels = academicLabels.get(s.id) ?? [];
 
             return (
               <tr key={s.id} className={s.status === "archived" ? "opacity-70" : ""}>
@@ -206,9 +216,13 @@ function StudentsPage() {
                 </Td>
                 <Td>{s.education_level || "—"}</Td>
                 <Td className="text-xs">{enrollmentLabels.length ? enrollmentLabels.join("، ") : "—"}</Td>
-                <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
-                <Td className="tabular-nums">{money(bal.paid, cur)}</Td>
-                <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
+                {canViewFinance ? (
+                  <>
+                    <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
+                    <Td className="tabular-nums">{money(bal.paid, cur)}</Td>
+                    <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
+                  </>
+                ) : null}
                 <Td>
                   <Badge
                     tone={
@@ -240,7 +254,7 @@ function StudentsPage() {
                           <Button variant="ghost" onClick={() => startEdit(s)}>
                             تعديل
                           </Button>
-                          <Button variant="ghost" onClick={() => setArchiveFor(s)}>
+                          <Button variant="ghost" onClick={() => { setArchiveFor(s); setError(null); }}>
                             أرشفة
                           </Button>
                         </>
@@ -252,6 +266,18 @@ function StudentsPage() {
             );
           })}
         </Table>
+        <PaginationControls
+          page={pagination.page}
+          pageCount={pagination.pageCount}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          from={pagination.from}
+          to={pagination.to}
+          onPrevious={pagination.previous}
+          onNext={pagination.next}
+          onPageSizeChange={pagination.setPageSize}
+        />
+        </>
       ) : (
         <Empty text={status === "archived" ? "لا يوجد طلاب في الأرشيف." : "لا يوجد طلاب مطابقون."} />
       )}
@@ -327,15 +353,22 @@ function StudentsPage() {
               <p className="mt-2">الطالب: <b>{archiveFor.full_name}</b></p>
               <p>الرمز: {archiveFor.code}</p>
               {db.enrollments.some((e) => e.student_id === archiveFor.id && e.status === "active") ? (
-                <p className="mt-2 text-amber-700">تنبيه: لدى الطالب تسجيلات نشطة، وستبقى محفوظة كما هي.</p>
+                <p className="mt-2 font-semibold text-destructive">لا يمكن الأرشفة الآن: لدى الطالب تسجيل نشط. أنهِ أو ألغِ التسجيل أولًا.</p>
               ) : null}
               <p className="mt-2 text-muted-foreground">
                 لن تُحذف بيانات الطالب أو تسجيلاته أو فواتيره أو إيصالاته. يمكن استرجاعه لاحقًا من الأرشيف.
               </p>
             </div>
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setArchiveFor(null)}>تراجع</Button>
-              <Button variant="danger" onClick={confirmArchive}>تأكيد الأرشفة</Button>
+              <Button
+                variant="danger"
+                onClick={confirmArchive}
+                disabled={db.enrollments.some((e) => e.student_id === archiveFor.id && e.status === "active")}
+              >
+                تأكيد الأرشفة
+              </Button>
             </div>
           </div>
         ) : null}

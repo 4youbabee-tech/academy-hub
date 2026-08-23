@@ -2,10 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td } from "@/components/ui-kit";
 import { insert, update, remove, hashPassword } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/permissions";
 import type { User, RoleKey } from "@/lib/types";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/users")({
   head: () => ({
@@ -26,12 +27,19 @@ function UsersPage() {
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
 
+  const rows = useMemo(
+    () => (db ? db.users.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar")) : []),
+    [db],
+  );
+  const pagination = usePagination(rows, "users");
+
   if (!db) return null;
   if (!allowed("users.view")) return <Denied />;
-  const canEdit = allowed("users.create");
+  const currentDb = db;
+  const canCreate = allowed("users.create");
+  const canUpdate = allowed("users.update");
   const canDelete = allowed("users.delete");
-
-  const rows = useMemo(() => db.users.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar")), [db]);
+  const isOwner = currentUser?.role === "owner";
 
   function startAdd() {
     setEditing(null);
@@ -57,7 +65,7 @@ function UsersPage() {
     if (!form.username.trim()) return setError("اسم المستخدم إلزامي");
     if (!form.full_name.trim()) return setError("الاسم الظاهر إلزامي");
 
-    const existing = db!.users.find(
+    const existing = currentDb.users.find(
       (u) => u.username.toLowerCase() === form.username.trim().toLowerCase() && u.id !== editing?.id,
     );
     if (existing) return setError("اسم المستخدم موجود مسبقاً");
@@ -100,22 +108,28 @@ function UsersPage() {
   async function deleteUser(u: User) {
     if (u.id === currentUser?.id) return setError("لا يمكن حذف حسابك الحالي");
     if (!confirm(`هل تريد حذف المستخدم "${u.full_name}"؟`)) return;
-    remove("users", u.id, actor, `حذف المستخدم ${u.full_name}`);
+    try {
+      remove("users", u.id, actor, `حذف المستخدم ${u.full_name}`);
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
   }
 
   return (
     <div>
       <PageHeader
         title="المستخدمون"
-        subtitle={`${db.users.length} مستخدم`}
-        actions={canEdit ? <Button onClick={startAdd}>+ مستخدم جديد</Button> : null}
+        subtitle={`${currentDb.users.length} مستخدم`}
+        actions={canCreate ? <Button onClick={startAdd}>+ مستخدم جديد</Button> : null}
       />
 
       {rows.length === 0 ? (
         <Empty text="لا يوجد مستخدمون." />
       ) : (
+        <>
         <Table head={["اسم المستخدم", "الاسم الظاهر", "الدور", "الحالة", ""]}>
-          {rows.map((u) => (
+          {pagination.rows.map((u) => (
             <tr key={u.id} className={u.id === currentUser?.id ? "bg-muted/40" : ""}>
               <Td className="font-semibold">@{u.username}</Td>
               <Td>{u.full_name}</Td>
@@ -128,12 +142,12 @@ function UsersPage() {
               </Td>
               <Td>
                 <div className="flex gap-1">
-                  {canEdit && (
+                  {canUpdate && (u.role !== "owner" || isOwner) && (
                     <Button variant="ghost" onClick={() => startEdit(u)}>
                       تعديل
                     </Button>
                   )}
-                  {canDelete && u.id !== currentUser?.id && (
+                  {canDelete && u.id !== currentUser?.id && (u.role !== "owner" || isOwner) && (
                     <Button variant="ghost" onClick={() => deleteUser(u)}>
                       حذف
                     </Button>
@@ -143,6 +157,18 @@ function UsersPage() {
             </tr>
           ))}
         </Table>
+        <PaginationControls
+          page={pagination.page}
+          pageCount={pagination.pageCount}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          from={pagination.from}
+          to={pagination.to}
+          onPrevious={pagination.previous}
+          onNext={pagination.next}
+          onPageSizeChange={pagination.setPageSize}
+        />
+        </>
       )}
 
       <Modal open={open} title={editing ? "تعديل مستخدم" : "مستخدم جديد"} onClose={() => setOpen(false)}>
@@ -168,7 +194,7 @@ function UsersPage() {
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as RoleKey })}
               >
-                <option value="owner">مالك</option>
+                {isOwner ? <option value="owner">مالك</option> : null}
                 <option value="director">مدير</option>
                 <option value="accountant">محاسب</option>
                 <option value="secretary">سكرتير</option>

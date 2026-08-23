@@ -3,7 +3,7 @@ import { useApp } from "@/lib/session";
 import { Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { Denied } from "@/components/AppShell";
 import { money, dateStr, today } from "@/lib/format";
-import { profitAndLoss, studentBalance } from "@/lib/finance";
+import { profitAndLoss, studentBalanceMap } from "@/lib/finance";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,24 +23,35 @@ function Dashboard() {
   if (!allowed("students.view")) return <Denied />;
 
   const cur = db.settings.currency;
+  const canViewFinance = allowed("finance.view");
   const activeStudents = db.students.filter((s) => s.status === "active").length;
   const runningClasses = db.classes.filter((c) => c.status === "running").length;
-  const billed = db.invoices.filter((i) => i.status !== "cancelled").reduce((s, i) => s + i.total, 0);
-  const paid = db.payments.filter((p) => !p.is_void).reduce((s, p) => s + p.amount, 0);
-  const studentsDue = Math.max(0, billed - paid);
+  const balancesByStudent = studentBalanceMap(db);
+  const studentsDue = [...balancesByStudent.values()].reduce((sum, balance) => sum + balance.due, 0);
   const month = today().slice(0, 7);
 
   let pl = { net: 0, income: 0, cost: 0, tuition: 0, otherIncome: 0, expenses: 0, payroll: 0 };
-  try {
-    pl = profitAndLoss(db, `${month}-01`, `${month}-31`);
-  } catch (error) {
-    console.error("خطأ في حساب الربح والخسارة:", error);
+  if (canViewFinance) {
+    try {
+      pl = profitAndLoss(db, `${month}-01`, `${month}-31`);
+    } catch (error) {
+      console.error("خطأ في حساب الربح والخسارة:", error);
+    }
   }
 
-  const studentsWithBalance = db.students
-    .map((student) => ({ student, balance: studentBalance(db, student.id) }))
+  const studentsWithBalance = canViewFinance ? db.students
+    .map((student) => ({ student, balance: balancesByStudent.get(student.id) ?? { billed: 0, paid: 0, due: 0 } }))
     .filter((row) => row.balance.due > 0)
-    .sort((a, b) => b.balance.due - a.balance.due);
+    .sort((a, b) => b.balance.due - a.balance.due) : [];
+
+  const activeInvoiceIds = new Set(db.invoices.filter((invoice) => invoice.status !== "cancelled").map((invoice) => invoice.id));
+  const latestPayments = canViewFinance
+    ? db.payments
+        .filter((payment) => !payment.is_void && activeInvoiceIds.has(payment.invoice_id))
+        .slice()
+        .sort((a, b) => b.paid_at.localeCompare(a.paid_at))
+        .slice(0, 8)
+    : [];
 
   return (
     <div>
@@ -49,33 +60,37 @@ function Dashboard() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Stat label="الطلاب النشطون" value={String(activeStudents)} hint={`إجمالي الطلاب: ${db.students.length}`} />
         <Stat label="صفوف قيد التنفيذ" value={String(runningClasses)} hint={`إجمالي الصفوف: ${db.classes.length}`} />
-        <Stat
-          label="إجمالي المتبقي على الطلاب"
-          value={money(studentsDue, cur)}
-          hint="المبالغ المستحقة على الطلاب ناقص ما تم قبضه"
-          tone={studentsDue > 0 ? "warning" : "success"}
-        />
-        <Stat
-          label="مقبوضات الطلاب هذا الشهر"
-          value={money(pl.tuition, cur)}
-          hint="مجموع سندات القبض السارية خلال الشهر الحالي"
-          tone="success"
-        />
-        <Stat
-          label="إجمالي مصروفات الشركة هذا الشهر"
-          value={money(pl.cost, cur)}
-          hint={`تشغيلية ${money(pl.expenses, cur)} + رواتب ${money(pl.payroll, cur)}`}
-          tone={pl.cost > 0 ? "danger" : "muted"}
-        />
-        <Stat
-          label="صافي الشهر الحالي"
-          value={money(pl.net, cur)}
-          hint="إجمالي المداخيل ناقص إجمالي مصروفات الشركة"
-          tone={pl.net >= 0 ? "success" : "danger"}
-        />
+        {canViewFinance ? (
+          <>
+            <Stat
+              label="إجمالي المتبقي على الطلاب"
+              value={money(studentsDue, cur)}
+              hint="المبالغ المستحقة على الطلاب ناقص ما تم قبضه"
+              tone={studentsDue > 0 ? "warning" : "success"}
+            />
+            <Stat
+              label="مقبوضات الطلاب هذا الشهر"
+              value={money(pl.tuition, cur)}
+              hint="مجموع سندات القبض السارية خلال الشهر الحالي"
+              tone="success"
+            />
+            <Stat
+              label="إجمالي مصروفات الشركة هذا الشهر"
+              value={money(pl.cost, cur)}
+              hint={`تشغيلية ${money(pl.expenses, cur)} + رواتب ${money(pl.payroll, cur)}`}
+              tone={pl.cost > 0 ? "danger" : "default"}
+            />
+            <Stat
+              label="صافي الشهر الحالي"
+              value={money(pl.net, cur)}
+              hint="إجمالي المداخيل ناقص إجمالي مصروفات الشركة"
+              tone={pl.net >= 0 ? "success" : "danger"}
+            />
+          </>
+        ) : null}
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {canViewFinance ? <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <div>
           <h2 className="mb-2 text-sm font-bold">طلاب عليهم رصيد ({studentsWithBalance.length})</h2>
           {studentsWithBalance.length ? (
@@ -100,13 +115,10 @@ function Dashboard() {
 
         <div>
           <h2 className="mb-2 text-sm font-bold">آخر الدفعات</h2>
-          {db.payments.length ? (
+          {latestPayments.length ? (
             <Table head={["الإيصال", "الطالب", "المبلغ", "التاريخ"]}>
-              {[...db.payments]
-                .sort((a, b) => b.paid_at.localeCompare(a.paid_at))
-                .slice(0, 8)
-                .map((p) => (
-                  <tr key={p.id} className={p.is_void ? "opacity-50 line-through" : ""}>
+              {latestPayments.map((p) => (
+                  <tr key={p.id}>
                     <Td>{p.receipt_no}</Td>
                     <Td>{db.students.find((s) => s.id === p.student_id)?.full_name ?? "—"}</Td>
                     <Td className="tabular-nums">{money(p.amount, cur)}</Td>
@@ -118,15 +130,15 @@ function Dashboard() {
             <Empty text="لم تُسجَّل دفعات بعد." />
           )}
         </div>
-      </div>
+      </div> : null}
 
       <Panel className="mt-6">
         <h2 className="text-sm font-bold">بداية سريعة</h2>
         <div className="mt-3 flex flex-wrap gap-3 text-sm">
-          <Link className="text-primary underline" to="/students">إضافة طالب</Link>
-          <Link className="text-primary underline" to="/courses">إنشاء دورة</Link>
-          <Link className="text-primary underline" to="/classes">فتح صف وتسجيل الطلاب</Link>
-          <Link className="text-primary underline" to="/backup">أخذ نسخة احتياطية</Link>
+          {allowed("students.create") ? <Link className="text-primary underline" to="/students">إضافة طالب</Link> : null}
+          {allowed("courses.create") ? <Link className="text-primary underline" to="/courses">إنشاء دورة</Link> : null}
+          {allowed("classes.view") ? <Link className="text-primary underline" to="/classes">فتح صف وتسجيل الطلاب</Link> : null}
+          {allowed("backup.view") ? <Link className="text-primary underline" to="/backup">أخذ نسخة احتياطية</Link> : null}
         </div>
       </Panel>
     </div>

@@ -15,13 +15,39 @@ export function fromMinor(minor: number): string {
 
 export function dateStr(d: string | Date | null | undefined): string {
   if (!d) return "—";
-  const date = typeof d === "string" ? new Date(d) : d;
+  const date = typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)
+    ? new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)))
+    : typeof d === "string"
+      ? new Date(d)
+      : d;
   if (isNaN(date.getTime())) return String(d);
   return date.toLocaleDateString("ar-EG", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/** Calendar day on this device. Use for accounting filters and date-only fields. */
+export function localDateKey(value: string | Date = new Date()): string {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** Calendar month on this device (YYYY-MM). */
+export function localMonthKey(value: string | Date = new Date()): string {
+  return localDateKey(value).slice(0, 7);
+}
+
+/** Local timestamp safe for backup filenames. */
+export function localFileTimestamp(value: Date = new Date()): string {
+  return `${localDateKey(value)}_${pad2(value.getHours())}-${pad2(value.getMinutes())}-${pad2(value.getSeconds())}`;
+}
+
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 export const WEEKDAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
