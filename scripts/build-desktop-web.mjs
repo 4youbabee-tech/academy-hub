@@ -2,13 +2,9 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 
-const isWindows = process.platform === "win32";
-const npmCommand = isWindows ? "npm.cmd" : "npm";
-const viteCommand = path.resolve(
-  "node_modules",
-  ".bin",
-  isWindows ? "vite.cmd" : "vite",
-);
+const nodeCommand = process.execPath;
+const typeScriptCommand = path.resolve("node_modules", "typescript", "bin", "tsc");
+const viteCommand = path.resolve("node_modules", "vite", "bin", "vite.js");
 
 function run(command, args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
@@ -25,9 +21,8 @@ function run(command, args, extraEnv = {}) {
   });
 }
 
-await run(npmCommand, ["run", "typecheck"]);
-await run(viteCommand, ["build"], {
+await run(nodeCommand, [typeScriptCommand, "--noEmit"]);
+await run(nodeCommand, [viteCommand, "build"], {
   ACADEMY_DESKTOP_BUILD: "1",
   NODE_ENV: "production",
 });
-
