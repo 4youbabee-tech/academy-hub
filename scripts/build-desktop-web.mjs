@@ -11,7 +11,7 @@ function run(command, args, extraEnv = {}) {
     const child = spawn(command, args, {
       stdio: "inherit",
       env: { ...process.env, ...extraEnv },
-      shell: false,
+      shell: process.platform === "win32",
     });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
