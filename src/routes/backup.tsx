@@ -57,6 +57,7 @@ function BackupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const desktopApi = typeof window === "undefined" ? undefined : window.academyDesktop;
 
   if (!db) return null;
   if (!allowed("backup.view")) return <Denied />;
@@ -68,6 +69,17 @@ function BackupPage() {
   async function exportBackup() {
     try {
       await flushDb();
+      if (desktopApi) {
+        const result = await desktopApi.backup.create();
+        if (result.cancelled) return;
+        transact((draft) =>
+          audit(draft, actor, "backup", null, "create", "إنشاء نسخة احتياطية SQLite لقاعدة البيانات"),
+        );
+        setError(null);
+        setMessage(`تم إنشاء النسخة الاحتياطية بنجاح${result.path ? `: ${result.path}` : "."}`);
+        return;
+      }
+
       const payload = JSON.stringify(currentDb, null, 2);
       const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -88,6 +100,27 @@ function BackupPage() {
     } catch (e) {
       setMessage(null);
       setError((e as Error).message || "تعذر إنشاء النسخة الاحتياطية.");
+    }
+  }
+
+  async function restoreDesktopBackup() {
+    if (!desktopApi) return;
+    if (!confirm("استعادة النسخة ستستبدل البيانات الحالية بالكامل ثم تعيد تشغيل البرنامج. هل تريد المتابعة؟")) {
+      return;
+    }
+    setRestoring(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await desktopApi.backup.restore();
+      if (result.cancelled) {
+        setRestoring(false);
+        return;
+      }
+      setMessage("تمت الاستعادة. جارٍ إعادة تشغيل البرنامج…");
+    } catch (e) {
+      setRestoring(false);
+      setError((e as Error).message || "تعذر استعادة النسخة الاحتياطية.");
     }
   }
 
@@ -143,8 +176,9 @@ function BackupPage() {
         <Panel>
           <h2 className="text-lg font-bold">إنشاء نسخة احتياطية</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            يتم تنزيل ملف JSON يحتوي على الطلاب والدورات والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات
-            وسجل التدقيق الحالي.
+            {desktopApi
+              ? "يتم حفظ نسخة SQLite كاملة تشمل الطلاب والتسجيلات والفواتير والإيصالات والموظفين والمستخدمين والإعدادات وسجل التدقيق."
+              : "يتم تنزيل ملف JSON يحتوي على الطلاب والدورات والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات وسجل التدقيق الحالي."}
           </p>
           <div className="mt-5">
             <Button onClick={exportBackup} disabled={!canExport}>
@@ -159,8 +193,8 @@ function BackupPage() {
         <Panel>
           <h2 className="text-lg font-bold">استعادة نسخة احتياطية</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            اختر ملف نسخة احتياطية صادر من Academy Hub. الاستعادة تستبدل البيانات المحلية الحالية، لذلك أنشئ نسخة
-            احتياطية قبل الاستعادة إذا كنت تحتاج البيانات الموجودة الآن.
+            اختر ملف نسخة احتياطية صادر من Academy Hub. الاستعادة تستبدل البيانات المحلية الحالية، ويُنشئ إصدار
+            Windows نسخة أمان تلقائية قبل الاستبدال.
           </p>
           <input
             ref={inputRef}
@@ -172,7 +206,10 @@ function BackupPage() {
           <div className="mt-5">
             <Button
               variant="secondary"
-              onClick={() => inputRef.current?.click()}
+              onClick={() => {
+                if (desktopApi) void restoreDesktopBackup();
+                else inputRef.current?.click();
+              }}
               disabled={!canRestore || restoring}
             >
               {restoring ? "جارٍ الاستعادة..." : "اختيار ملف واستعادة"}
@@ -199,8 +236,9 @@ function BackupPage() {
       <Panel className="mt-4">
         <h2 className="text-sm font-bold">مهم</h2>
         <p className="mt-2 text-sm leading-7 text-muted-foreground">
-          البيانات في هذا البرنامج محفوظة داخل المتصفح عبر IndexedDB، لذلك النسخة الاحتياطية الخارجية مهمة قبل تغيير
-          الجهاز أو مسح بيانات المتصفح أو إجراء تحديثات كبيرة على بنية قاعدة البيانات.
+          {desktopApi
+            ? "نسخة Windows تحفظ البيانات في SQLite داخل مجلد بيانات المستخدم، وليس داخل مجلد التثبيت. التحديثات لا تمسح البيانات أو الترخيص، ويُنشئ البرنامج نسخة تلقائية يومية مع الاحتفاظ بآخر 30 نسخة."
+            : "البيانات في نسخة الويب محفوظة داخل المتصفح عبر IndexedDB، لذلك النسخة الاحتياطية الخارجية مهمة قبل تغيير الجهاز أو مسح بيانات المتصفح."}
         </p>
       </Panel>
     </div>

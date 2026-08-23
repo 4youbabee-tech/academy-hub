@@ -1,6 +1,6 @@
 # Academy Hub
 
-نظام عربي لإدارة معهد تعليمي، يعمل حاليًا كتطبيق Web محلي ويحفظ البيانات في IndexedDB. جميع البيانات الموجودة أثناء التطوير تجريبية.
+نظام عربي لإدارة معهد تعليمي. يمكن تشغيله كنسخة Web للتطوير، أو كتطبيق Windows مستقل عبر Electron مع SQLite وترخيص Offline مرتبط بالجهاز. جميع البيانات الموجودة أثناء التطوير تجريبية.
 
 ## نطاق النظام الحالي
 
@@ -30,6 +30,12 @@ npm install
 npm run dev
 ```
 
+ولتجربة غلاف Windows أثناء التطوير:
+
+```sh
+npm run desktop:dev
+```
+
 الحساب الافتراضي عند أول تشغيل:
 
 - اسم المستخدم: `owner`
@@ -43,6 +49,8 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run build
+npm run test:domain
+npm run test:desktop
 ```
 
 أو شغّل الفحوص الثلاثة معًا:
@@ -53,18 +61,19 @@ npm run check
 
 ## البيانات والنسخ الاحتياطي
 
-النسخة الحالية تخزّن البيانات داخل IndexedDB على الجهاز. استخدم صفحة «النسخ الاحتياطي» لتنزيل ملف JSON قبل مسح بيانات المتصفح أو نقل العمل إلى جهاز آخر.
+نسخة Web تخزّن البيانات في IndexedDB، بينما نسخة Windows تخزّنها في SQLite داخل مجلد بيانات مستخدم Windows. صفحة «النسخ الاحتياطي» تنشئ ملف JSON في الويب ونسخة SQLite كاملة في Desktop.
 
-تم عزل التخزين خلف `StorageAdapter`، بينما بقيت قواعد الطلاب والمالية والرواتب والصلاحيات خارج مكوّنات العرض قدر الإمكان. هذا يمهّد للمسار المستقبلي:
+تم عزل التخزين خلف `StorageAdapter`، وبقيت قواعد الطلاب والمالية والرواتب والصلاحيات خارج مكوّنات العرض. مسار Desktop الفعلي هو:
 
 React UI → Electron Preload/IPC → Data Access Layer → SQLite داخل مجلد بيانات المستخدم.
 
-## مراحل Desktop المستقبلية
+## بناء Installer Windows
 
-بعد اعتماد نسخة Web المستقرة فقط:
+راجع [DESKTOP_RELEASE_GUIDE_AR.md](./DESKTOP_RELEASE_GUIDE_AR.md). ويمكن البناء مباشرة على Windows:
 
-1. Electron مع IPC آمن.
-2. SQLite وDatabase migrations ونسخة احتياطية قبل الترقية.
-3. Windows Installer وGitHub Releases وPatch updates.
-4. ترخيص Offline موقّع مرتبط ببصمة الجهاز؛ المفتاح الخاص يبقى خارج التطبيق دائمًا.
-5. مزامنة Online/Offline لاحقًا بتصميم مستقل للطوابير والتعارضات.
+```sh
+npm ci
+npm run desktop:dist
+```
+
+المفتاح الخاص لإصدار التراخيص لا يوجد في هذا المستودع أو داخل Installer، بل في حزمة البائع المنفصلة فقط.

@@ -1,0 +1,57 @@
+import type { DB } from "./lib/types";
+import type { PageRequest, PageResult } from "./lib/data-access";
+
+interface DesktopLicensePayload {
+  customer: string;
+  machineId: string;
+  product: "academy-hub";
+  edition: string;
+  issuedAt: string;
+  expiresAt: string | null;
+  allowedMajorVersion: number;
+}
+
+interface DesktopLicenseStatus {
+  valid: boolean;
+  state: string;
+  message: string;
+  machineId: string;
+  license: DesktopLicensePayload | null;
+}
+
+interface AcademyDesktopApi {
+  platform: "desktop";
+  database: {
+    load(): Promise<DB | undefined>;
+    save(snapshot: unknown): Promise<{ saved: boolean }>;
+    getPage<T>(collection: string, request: PageRequest): Promise<PageResult<T>>;
+  };
+  license: {
+    getStatus(): Promise<DesktopLicenseStatus>;
+    importFile(): Promise<{ cancelled: boolean; status: DesktopLicenseStatus }>;
+    copyMachineId(): Promise<{ copied: boolean }>;
+  };
+  backup: {
+    create(): Promise<{ cancelled: boolean; path?: string }>;
+    restore(): Promise<{ cancelled: boolean; restarting?: boolean; safetyBackup?: string }>;
+  };
+  app: {
+    getInfo(): Promise<{ name: string; version: string; packaged: boolean }>;
+    checkForUpdates(): Promise<{
+      configured: boolean;
+      available: boolean;
+      currentVersion: string;
+      latestVersion?: string;
+      message: string;
+    }>;
+    quit(): Promise<{ quitting: boolean }>;
+  };
+}
+
+declare global {
+  interface Window {
+    academyDesktop?: AcademyDesktopApi;
+  }
+}
+
+export {};

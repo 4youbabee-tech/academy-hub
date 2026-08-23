@@ -6,7 +6,23 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+const isDesktopBuild = process.env["ACADEMY_DESKTOP_BUILD"] === "1";
+
 export default defineConfig({
+  nitro: {
+    // The web/Lovable build remains Cloudflare-compatible. The packaged
+    // desktop app runs a loopback-only Node server bundled beside Electron.
+    preset: isDesktopBuild ? "node-server" : "cloudflare-module",
+    ...(isDesktopBuild
+      ? {
+          output: {
+            dir: ".output",
+            publicDir: ".output/public",
+            serverDir: ".output/server",
+          },
+        }
+      : {}),
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

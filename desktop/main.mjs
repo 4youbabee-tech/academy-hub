@@ -1,0 +1,346 @@
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  safeStorage,
+  session,
+  shell,
+} from "electron";
+import { spawn } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import net from "node:net";
+import path from "node:path";
+
+import { AcademyDatabase } from "./database.mjs";
+import { LicenseManager } from "./licensing.mjs";
+import { UpdateService } from "./update-service.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const isDevelopment = !app.isPackaged;
+const devServerUrl = process.env.ACADEMY_DEV_SERVER_URL || "http://127.0.0.1:8080";
+
+let mainWindow = null;
+let webServer = null;
+let allowedOrigin = null;
+let database = null;
+let licenseManager = null;
+let updateService = null;
+let restoring = false;
+let logFile = null;
+
+function log(message, error) {
+  const suffix = error instanceof Error ? `\n${error.stack ?? error.message}` : error ? `\n${String(error)}` : "";
+  const line = `[${new Date().toISOString()}] ${message}${suffix}\n`;
+  console.log(line.trimEnd());
+  if (logFile) {
+    try {
+      appendFileSync(logFile, line, "utf8");
+    } catch {
+      // Logging must never prevent the application from starting.
+    }
+  }
+}
+
+function reserveLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : null;
+      server.close((error) => (error || !port ? reject(error ?? new Error("No port")) : resolve(port)));
+    });
+  });
+}
+
+async function waitForHttp(url) {
+  const deadline = Date.now() + 25_000;
+  while (Date.now() < deadline) {
+    if (webServer?.exitCode != null) throw new Error("The bundled web server stopped unexpectedly.");
+    try {
+      const response = await fetch(url, { redirect: "manual" });
+      if (response.status < 500) return;
+    } catch {
+      // The local server is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Timed out while starting the bundled Academy Hub server.");
+}
+
+async function startPackagedWebServer() {
+  const port = await reserveLoopbackPort();
+  const serverEntry = path.join(process.resourcesPath, "web", "server", "index.mjs");
+  const url = `http://127.0.0.1:${port}`;
+  webServer = spawn(process.execPath, [serverEntry], {
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: "1",
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      NITRO_HOST: "127.0.0.1",
+      NITRO_PORT: String(port),
+      NODE_ENV: "production",
+    },
+  });
+  webServer.stdout?.on("data", (chunk) => log(`[web] ${String(chunk).trimEnd()}`));
+  webServer.stderr?.on("data", (chunk) => log(`[web:error] ${String(chunk).trimEnd()}`));
+  webServer.once("exit", (code, signal) => {
+    if (!app.isQuitting) log(`Bundled web server exited (${signal ?? code ?? "unknown"}).`);
+  });
+  await waitForHttp(url);
+  return url;
+}
+
+function stopWebServer() {
+  if (webServer && webServer.exitCode === null) webServer.kill();
+  webServer = null;
+}
+
+function assertTrustedSender(event) {
+  const senderUrl = event.senderFrame?.url ?? "";
+  if (!allowedOrigin || !senderUrl.startsWith(`${allowedOrigin}/`) && senderUrl !== allowedOrigin) {
+    throw new Error("Untrusted IPC sender.");
+  }
+}
+
+function handle(channel, callback) {
+  ipcMain.handle(channel, async (event, payload) => {
+    assertTrustedSender(event);
+    return callback(payload, event);
+  });
+}
+
+function requireDatabaseAccess() {
+  if (restoring) throw new Error("تجري استعادة قاعدة البيانات الآن.");
+  licenseManager.assertValid();
+}
+
+function installIpcHandlers() {
+  handle("academy:license:get-status", () => licenseManager.getStatus());
+  handle("academy:license:copy-machine-id", () => {
+    clipboard.writeText(licenseManager.getStatus().machineId);
+    return { copied: true };
+  });
+  handle("academy:license:import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "استيراد ترخيص Academy Hub",
+      properties: ["openFile"],
+      filters: [{ name: "Academy Hub License", extensions: ["license"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return { cancelled: true, status: licenseManager.getStatus() };
+    }
+    const status = await licenseManager.importFrom(result.filePaths[0]);
+    return { cancelled: false, status };
+  });
+
+  handle("academy:database:load", () => {
+    requireDatabaseAccess();
+    return database.loadSnapshot();
+  });
+  handle("academy:database:save", (snapshot) => {
+    requireDatabaseAccess();
+    const payloadSize = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
+    if (payloadSize > 64 * 1024 * 1024) throw new Error("حجم قاعدة البيانات غير منطقي.");
+    database.saveSnapshot(snapshot);
+    return { saved: true };
+  });
+  handle("academy:database:get-page", ({ collection, request } = {}) => {
+    requireDatabaseAccess();
+    return database.getPage(collection, request);
+  });
+
+  handle("academy:backup:create", async () => {
+    requireDatabaseAccess();
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "حفظ نسخة احتياطية",
+      defaultPath: path.join(app.getPath("documents"), `Academy-Hub-Backup-${stamp}.sqlite`),
+      filters: [{ name: "Academy Hub SQLite Backup", extensions: ["sqlite"] }],
+    });
+    if (result.canceled || !result.filePath) return { cancelled: true };
+    await database.createBackup(result.filePath);
+    return { cancelled: false, path: result.filePath };
+  });
+
+  handle("academy:backup:restore", async () => {
+    requireDatabaseAccess();
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "استعادة نسخة احتياطية",
+      properties: ["openFile"],
+      filters: [{ name: "Academy Hub SQLite Backup", extensions: ["sqlite", "db"] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { cancelled: true };
+    restoring = true;
+    try {
+      const safetyBackup = await database.restoreFrom(result.filePaths[0]);
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 500);
+      return { cancelled: false, restarting: true, safetyBackup };
+    } catch (error) {
+      restoring = false;
+      throw error;
+    }
+  });
+
+  handle("academy:app:get-info", () => ({
+    name: app.getName(),
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+  }));
+  handle("academy:app:check-updates", () => updateService.check());
+  handle("academy:app:quit", () => {
+    app.quit();
+    return { quitting: true };
+  });
+}
+
+function installSessionSecurity() {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+
+  if (!isDevelopment) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      if (!allowedOrigin || !details.url.startsWith(allowedOrigin)) return callback({});
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
+              "img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; " +
+              "script-src 'self' 'unsafe-inline'; connect-src 'self';",
+          ],
+        },
+      });
+    });
+  }
+}
+
+async function createMainWindow(url) {
+  const window = new BrowserWindow({
+    width: 1360,
+    height: 860,
+    minWidth: 1024,
+    minHeight: 680,
+    show: false,
+    backgroundColor: "#f8fafc",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      devTools: isDevelopment,
+    },
+  });
+
+  window.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
+    if (/^https:\/\//i.test(externalUrl)) void shell.openExternal(externalUrl);
+    return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, navigationUrl) => {
+    if (!navigationUrl.startsWith(allowedOrigin)) event.preventDefault();
+  });
+  window.once("ready-to-show", () => window.show());
+  await window.loadURL(url);
+  return window;
+}
+
+async function bootstrap() {
+  const userData = app.getPath("userData");
+  mkdirSync(path.join(userData, "logs"), { recursive: true });
+  logFile = path.join(userData, "logs", "academy-hub.log");
+
+  const databasePath = path.join(userData, "data", "academy-hub.sqlite");
+  const backupDirectory = path.join(userData, "backups");
+  database = await AcademyDatabase.open({ databasePath, backupDirectory });
+  licenseManager = await LicenseManager.create({
+    licensePath: path.join(userData, "license", "academy.license"),
+    publicKeyPath: path.join(__dirname, "resources", "license-public.pem"),
+    machineCachePath: path.join(userData, "license", "machine-id.bin"),
+    protectMachineId: safeStorage.isEncryptionAvailable()
+      ? (value) => safeStorage.encryptString(value)
+      : null,
+    unprotectMachineId: safeStorage.isEncryptionAvailable()
+      ? (value) => safeStorage.decryptString(value)
+      : null,
+    appVersion: app.getVersion(),
+    developmentBypass: isDevelopment,
+  });
+  updateService = new UpdateService({
+    configPath: path.join(__dirname, "resources", "update.json"),
+    packaged: app.isPackaged,
+    currentVersion: app.getVersion(),
+    logger: log,
+  });
+
+  const url = isDevelopment ? devServerUrl : await startPackagedWebServer();
+  allowedOrigin = new URL(url).origin;
+  installSessionSecurity();
+  installIpcHandlers();
+  mainWindow = await createMainWindow(url);
+
+  setTimeout(() => {
+    void database.createAutomaticBackupIfDue().catch((error) => log("Automatic backup failed", error));
+  }, 10_000).unref();
+
+  if (app.isPackaged) {
+    setTimeout(() => void updateService.check(), 15_000).unref();
+  }
+}
+
+const lock = app.requestSingleInstanceLock();
+if (!lock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    app.setAppUserModelId("com.academyhub.desktop");
+    Menu.setApplicationMenu(null);
+    try {
+      await bootstrap();
+    } catch (error) {
+      log("Startup failed", error);
+      await dialog.showMessageBox({
+        type: "error",
+        title: "Academy Hub",
+        message: "تعذر تشغيل Academy Hub.",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      app.quit();
+    }
+  });
+}
+
+app.on("before-quit", () => {
+  app.isQuitting = true;
+  stopWebServer();
+  if (database) {
+    try {
+      database.close();
+    } catch (error) {
+      log("Database close failed", error);
+    }
+    database = null;
+  }
+});
+
+app.on("window-all-closed", () => app.quit());

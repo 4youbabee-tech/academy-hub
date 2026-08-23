@@ -1,14 +1,24 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "academy-hub",
+  "version": "1.0.0",
+  "description": "Academy Hub - offline institute management for Windows",
+  "author": "Academy Hub",
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "main": "desktop/main.mjs",
   "scripts": {
     "dev": "vite dev",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "desktop:dev": "node scripts/desktop-dev.mjs",
+    "desktop:build:web": "node scripts/build-desktop-web.mjs",
+    "desktop:pack": "npm run desktop:build:web && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build:web && electron-builder --win nsis --x64 --publish never",
+    "test:domain": "node --import tsx tests/domain-harness.ts",
+    "test:desktop": "node tests/desktop-harness.mjs",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run build",
     "format": "prettier --write ."
@@ -51,6 +61,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
+    "electron-updater": "6.8.9",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
     "react": "^19.2.0",
@@ -74,6 +85,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -84,6 +97,46 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
+    "tsx": "4.23.12",
     "vite": "^8.2.0"
+  },
+  "build": {
+    "appId": "com.academyhub.desktop",
+    "productName": "Academy Hub",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".output",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "icon": "public/favicon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Academy-Hub-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Academy Hub",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

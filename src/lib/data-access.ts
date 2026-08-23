@@ -14,14 +14,36 @@ export interface PageResult<T> {
 }
 
 /**
- * Contract for a future query-backed repository. The current IndexedDB store
- * remains local and in-memory; SQLite can implement this contract with
- * LIMIT/OFFSET or cursors without changing screen-level pagination controls.
+ * Contract shared by browser and desktop repositories. The desktop preload
+ * implements paging with indexed SQLite LIMIT/OFFSET queries, while the
+ * existing screen-level controls remain unchanged.
  */
 export interface AcademyRepository {
   load(): Promise<DB>;
   getById<K extends CollectionKey>(collection: K, id: ID): Promise<DB[K][number] | undefined>;
   getPage<K extends CollectionKey>(collection: K, request: PageRequest): Promise<PageResult<DB[K][number]>>;
+}
+
+export function createDesktopRepository(): AcademyRepository | null {
+  if (typeof window === "undefined" || !window.academyDesktop) return null;
+  const api = window.academyDesktop.database;
+  return {
+    async load() {
+      const database = await api.load();
+      if (!database) throw new Error("قاعدة بيانات Desktop غير مهيأة بعد.");
+      return database;
+    },
+    async getById(collection, id) {
+      const page = await api.getPage<DB[typeof collection][number]>(collection, {
+        limit: 50,
+        search: id,
+      });
+      return page.rows.find((row) => row.id === id);
+    },
+    async getPage(collection, request) {
+      return api.getPage<DB[typeof collection][number]>(collection, request);
+    },
+  };
 }
 
 export const SQLITE_INDEX_PLAN = [

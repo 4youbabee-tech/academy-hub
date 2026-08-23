@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppProvider } from "../lib/session";
 import { AppShell } from "../components/AppShell";
+import { LicenseGate } from "../components/LicenseGate";
 
 function NotFoundComponent() {
   return (
@@ -114,11 +115,13 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppProvider>
-        <AppShell>
-          <Outlet />
-        </AppShell>
-      </AppProvider>
+      <LicenseGate>
+        <AppProvider>
+          <AppShell>
+            <Outlet />
+          </AppShell>
+        </AppProvider>
+      </LicenseGate>
     </QueryClientProvider>
   );
 }
