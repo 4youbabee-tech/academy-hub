@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
+  <title id="title">إدارة الموظف ودفع الراتب</title>
+  <desc id="desc">الموظف ثم السلفة ثم تأكيد دفع الراتب ثم طباعة السند</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#173f47" flood-opacity=".13"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5 0 10z" fill="#4d8790"/></marker>
+    <style>text{font-family:"Segoe UI",Tahoma,Arial,sans-serif}text:not([fill]){fill:#263c42}.small{font-size:14px;fill:#6b7d80}.head{font-size:18px;font-weight:800}</style>
+  </defs>
+  <rect width="900" height="430" rx="24" fill="#f7f8f4"/>
+  <text x="450" y="48" text-anchor="middle" font-size="25" font-weight="800">من إضافة الموظف إلى سند الراتب</text>
+  <text x="450" y="76" text-anchor="middle" class="small">راجع نافذة التأكيد دائمًا قبل اعتماد الدفع</text>
+
+  <g filter="url(#shadow)">
+    <rect x="650" y="112" width="190" height="225" rx="18" fill="white" stroke="#d9e4e1"/>
+    <circle cx="745" cy="165" r="34" fill="#e8f3f2"/><circle cx="745" cy="154" r="13" fill="#4d8790"/><path d="M718 190c4-27 50-27 54 0" fill="#4d8790"/>
+    <text x="745" y="230" text-anchor="middle" class="head">الموظف</text><text x="745" y="255" text-anchor="middle" class="small">راتب أساسي 500</text>
+    <rect x="687" y="281" width="116" height="32" rx="8" fill="#3e7f85"/><text x="745" y="302" text-anchor="middle" font-size="13" font-weight="700" fill="white">إضافة موظف</text>
+
+    <rect x="453" y="112" width="150" height="225" rx="18" fill="#fffaf0" stroke="#e9cf95"/>
+    <circle cx="528" cy="164" r="31" fill="#f7e6c4"/><text x="528" y="174" text-anchor="middle" font-size="29" font-weight="900" fill="#b77418">100</text>
+    <text x="528" y="230" text-anchor="middle" class="head">السلفة</text><text x="528" y="255" text-anchor="middle" class="small">تُسوّى مع الراتب</text>
+    <rect x="478" y="281" width="100" height="32" rx="8" fill="#d99d3d"/><text x="528" y="302" text-anchor="middle" font-size="13" font-weight="700" fill="white">تسجيل</text>
+
+    <rect x="223" y="96" width="180" height="258" rx="18" fill="white" stroke="#d9e4e1"/>
+    <text x="383" y="129" text-anchor="end" class="head">تأكيد دفع الراتب</text>
+    <text x="383" y="165" text-anchor="end" class="small">الأساسي</text><text x="243" y="165" font-size="14" font-weight="800">500</text>
+    <text x="383" y="197" text-anchor="end" class="small">السلفة</text><text x="243" y="197" font-size="14" font-weight="800" fill="#b77418">100−</text>
+    <line x1="243" y1="216" x2="383" y2="216" stroke="#d9e4e1"/>
+    <text x="383" y="247" text-anchor="end" class="head">الصافي</text><text x="243" y="247" font-size="18" font-weight="900" fill="#397b57">400</text>
+    <rect x="247" y="291" width="132" height="36" rx="9" fill="#48966b"/><text x="313" y="315" text-anchor="middle" font-size="14" font-weight="800" fill="white">تأكيد الدفع</text>
+
+    <rect x="38" y="112" width="135" height="225" rx="18" fill="#f9fbfa" stroke="#d9e4e1"/>
+    <path d="M73 139h65v92l-9-6-8 6-8-6-8 6-8-6-8 6-8-6-8 6z" fill="#4d8790"/><path d="M84 160h42M84 176h42M84 192h31" stroke="white" stroke-width="4"/>
+    <text x="105" y="268" text-anchor="middle" class="head">سند A5</text><text x="105" y="294" text-anchor="middle" class="small">للتوقيع</text>
+  </g>
+  <g stroke="#4d8790" stroke-width="3" marker-end="url(#arrow)"><line x1="640" y1="223" x2="616" y2="223"/><line x1="443" y1="223" x2="416" y2="223"/><line x1="213" y1="223" x2="185" y2="223"/></g>
+  <rect x="172" y="383" width="556" height="30" rx="8" fill="#e9f4f3"/><text x="450" y="404" text-anchor="middle" font-size="14" font-weight="700">تكلفة الراتب على المعهد تبقى 500، والصافي المدفوع آخر الشهر 400</text>
+</svg>
