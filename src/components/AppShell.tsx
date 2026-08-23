@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { useApp } from "@/lib/session";
 import { Button, Input, Modal, Panel } from "@/components/ui-kit";
+import { HelpGuide } from "@/components/HelpGuide";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
@@ -185,132 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
 
-      <Modal open={helpOpen} title="كيفية العمل على البرنامج" onClose={() => setHelpOpen(false)} wide>
-        <div className="space-y-6 text-sm">
-          <div className="rounded-xl border bg-muted/30 p-4">
-            <p className="font-bold">الفكرة العامة</p>
-            <p className="mt-1 leading-6 text-muted-foreground">
-              البرنامج مقسّم إلى أربعة أقسام رئيسية: الأكاديمي، المالية، الموظفون والرواتب، والإدارة. كل قسم له وظيفة واضحة حتى يعرف العامل أين يبدأ وأين يجد النتيجة.
-            </p>
-          </div>
-
-          <section className="space-y-3">
-            <div>
-              <p className="text-base font-bold">🎓 أولًا: القسم الأكاديمي</p>
-              <p className="mt-1 text-muted-foreground">يُستخدم لإضافة الطلاب والدورات والصفوف ثم تسجيل الطلاب داخل الصفوف.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["الطلاب", "أضف طالبًا جديدًا واحفظ بياناته. من ملف الطالب تستطيع لاحقًا متابعة تسجيلاته وحسابه المالي وسنداته."],
-                ["الدورات", "أضف اسم الدورة ومستواها وسعرها الافتراضي. الدورة هي الأساس الذي يُبنى عليه الصف."],
-                ["الصفوف والجداول", "أنشئ صفًا واربطه بالدورة والمدرّس والموعد. من داخل الصف يتم تسجيل الطلاب."],
-                ["تسجيل الطالب", "من الصف اضغط تسجيل طالب، اختر الطالب وحدد السعر والخصم ورسوم التسجيل. بعد الحفظ يظهر التسجيل ضمن المسجلين وتُنشأ الفاتورة تلقائيًا."],
-                ["المسجّلون", "من كل صف افتح المسجلين لمراجعة الطلاب المسجلين، المستحق، المقبوض والمتبقي، مع إمكانية تعديل أو إلغاء التسجيل حسب الحالة المالية."],
-                ["ملف الطالب", "يعرض بيانات الطالب، التسجيلات، الفواتير، المقبوضات والمتبقي وسندات القبض، مع إمكانية طباعة السند من نفس الملف."],
-                ["أرشفة الطالب", "الأرشفة لا تحذف شيئًا ويمكن استرجاع الطالب لاحقًا. إذا كان لديه تسجيل نشط، أنهِ أو ألغِ التسجيل أولًا ثم نفّذ الأرشفة."],
-              ].map(([title, text]) => (
-                <div key={title} className="rounded-xl border p-4">
-                  <p className="font-bold">{title}</p>
-                  <p className="mt-2 leading-6 text-muted-foreground">{text}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div>
-              <p className="text-base font-bold">💰 ثانيًا: القسم المالي</p>
-              <p className="mt-1 text-muted-foreground">كل ما يتعلق بالمستحقات، القبض، المصاريف، المداخيل والتقارير المالية.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["الإيصالات والفواتير", "هذا هو مركز القبض. اختر فاتورة الطالب، أدخل المبلغ، طريقة الدفع، واكتب البيان مثل: رسوم تسجيل أو قسط أول، ثم احفظ السند واطبعه A5."],
-                ["المستحق / المقبوض / المتبقي", "المستحق هو إجمالي ما على الطالب، المقبوض هو ما تم تحصيله فعليًا من سندات القبض، والمتبقي هو الفرق بينهما."],
-                ["المصاريف", "تُستخدم لتسجيل المصاريف التشغيلية مثل الكهرباء والإيجار والصيانة. المصروف الملغى يبقى بالسجل لكنه لا يدخل في الإجمالي."],
-                ["المداخيل", "تُستخدم لعرض أو إضافة المداخيل الجانبية غير المتعلقة بسندات الطلاب. لا تُدخل دفعة الطالب هنا حتى لا تُحتسب مرتين."],
-                ["لوحة المعلومات", "تعرض المقبوضات، إجمالي المتبقي على الطلاب، المصاريف التشغيلية، الرواتب المدفوعة، إجمالي مصروفات الشركة وصافي الشهر."],
-                ["التقارير", "تُستخدم لمراجعة الربح والخسارة وأرصدة الطلاب وتصدير البيانات عند الحاجة."],
-              ].map(([title, text]) => (
-                <div key={title} className="rounded-xl border p-4">
-                  <p className="font-bold">{title}</p>
-                  <p className="mt-2 leading-6 text-muted-foreground">{text}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div>
-              <p className="text-base font-bold">👥 ثالثًا: الموظفون والرواتب</p>
-              <p className="mt-1 text-muted-foreground">لإدارة الموظفين والسلف والرواتب وسندات الدفع.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["إضافة موظف", "أضف الموظف وحدد وظيفته وراتبه الأساسي وحالته."],
-                ["السلف", "إذا أخذ الموظف سلفة تُسجل عليه وتُسوّى لاحقًا ضمن الراتب بدون أن تُحسب مرتين كمصروف."],
-                ["دفع الراتب", "بعد تجهيز كشف الراتب وتأكيد الدفع يتحول إلى مدفوع ويُحتسب ضمن مصروفات الشركة."],
-                ["سند الراتب", "بعد الدفع يمكن طباعة سند راتب يحتوي تفاصيل الأساسي، الإضافات، الحسميات، السلف والصافي المدفوع."],
-              ].map(([title, text]) => (
-                <div key={title} className="rounded-xl border p-4">
-                  <p className="font-bold">{title}</p>
-                  <p className="mt-2 leading-6 text-muted-foreground">{text}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div>
-              <p className="text-base font-bold">⚙️ رابعًا: الإدارة والنظام</p>
-              <p className="mt-1 text-muted-foreground">لإدارة إعدادات المعهد والمستخدمين ومراجعة العمليات وحفظ نسخة احتياطية.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["الإعدادات", "عدّل اسم المعهد، الشعار، العملة، أرقام الإيصالات، إعدادات الطباعة وأنواع المصاريف."],
-                ["المستخدمون", "أنشئ المستخدمين وحدد دور كل مستخدم حتى تظهر له فقط الشاشات المسموح بها. حسابات المالك يديرها مالك فقط، ولا يمكن تعطيل أو حذف آخر مالك."],
-                ["سجل التدقيق", "يعرض سجل العمليات المهمة لمعرفة من أضاف أو عدّل أو ألغى حركة داخل النظام."],
-                ["النسخ الاحتياطي", "نزّل نسخة احتياطية دورية من البيانات، ويمكن استعادتها عند الحاجة."],
-              ].map(([title, text]) => (
-                <div key={title} className="rounded-xl border p-4">
-                  <p className="font-bold">{title}</p>
-                  <p className="mt-2 leading-6 text-muted-foreground">{text}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <div className="rounded-xl border bg-muted/30 p-4">
-            <p className="font-bold">مسار العمل الأساسي</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
-              <span className="rounded-lg bg-card px-3 py-2">إضافة طالب</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">إضافة دورة</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">إنشاء صف</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">تسجيل الطالب</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">الفاتورة</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">سند قبض</span>
-              <span>←</span>
-              <span className="rounded-lg bg-card px-3 py-2">تحديث المقبوض والمتبقي</span>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-warning/30 bg-warning/10 p-4">
-            <p className="font-bold">ملاحظات مهمة</p>
-            <div className="mt-2 space-y-1 leading-6 text-muted-foreground">
-              <p>• قبض الطلاب يتم من الإيصالات والفواتير فقط.</p>
-              <p>• لا تدخل سند الطالب مرة ثانية في المداخيل.</p>
-              <p>• الرواتب تدخل تلقائيًا ضمن إجمالي مصروفات الشركة ولا تُسجل مرة ثانية كمصروف يدوي.</p>
-              <p>• عند إلغاء أي حركة مالية، استخدم الإلغاء بدل الحذف حتى يبقى سجل العملية محفوظًا.</p>
-              <p>• راجع تفاصيل الموظف والشهر والصافي في نافذة التأكيد قبل دفع الراتب.</p>
-              <p>• خذ نسخة احتياطية دورية، خصوصًا قبل استعادة ملف أو تغيير جهاز العمل.</p>
-            </div>
-          </div>
-        </div>
-      </Modal>
+      <Modal open={helpOpen} title="كيفية العمل على البرنامج" onClose={() => setHelpOpen(false)} extraWide>\n        <HelpGuide />\n      </Modal>
     </div>
   );
 }

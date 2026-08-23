@@ -235,17 +235,19 @@ export function Modal({
   onClose,
   children,
   wide,
+  extraWide,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  extraWide?: boolean;
 }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-foreground/40 p-4 py-10 no-print">
-      <div className={cn("panel w-full p-6", wide ? "max-w-3xl" : "max-w-lg")}>
+      <div className={cn("panel w-full p-6", extraWide ? "max-w-5xl" : wide ? "max-w-3xl" : "max-w-lg")}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">{title}</h2>
           <button onClick={onClose} className="rounded-md px-2 py-1 text-muted-foreground hover:bg-muted">

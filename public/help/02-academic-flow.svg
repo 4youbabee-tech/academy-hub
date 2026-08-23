@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
+  <title id="title">التدفق الأكاديمي الصحيح</title>
+  <desc id="desc">الدورة ثم الصف ثم الطالب ثم التسجيل ثم الفاتورة</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#173f47" flood-opacity=".13"/></filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5 0 10z" fill="#4d8790"/></marker>
+    <style>text{font-family:"Segoe UI",Tahoma,Arial,sans-serif}text:not([fill]){fill:#263c42}.sub{font-size:14px;fill:#6b7d80}.title{font-size:19px;font-weight:800}.n{font-size:15px;font-weight:800;fill:white!important}</style>
+  </defs>
+  <rect width="900" height="430" rx="24" fill="#f7f8f4"/>
+  <text x="450" y="48" text-anchor="middle" font-size="25" font-weight="800">المسار الصحيح لتسجيل طالب</text>
+  <text x="450" y="77" text-anchor="middle" class="sub">ابدأ من الدورة، والفاتورة تظهر تلقائيًا بعد التسجيل</text>
+
+  <g stroke="#4d8790" stroke-width="3" marker-end="url(#arrow)">
+    <line x1="745" y1="213" x2="650" y2="213"/>
+    <line x1="575" y1="213" x2="480" y2="213"/>
+    <line x1="405" y1="213" x2="310" y2="213"/>
+    <line x1="235" y1="213" x2="140" y2="213"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(740 115)">
+      <rect x="-70" width="140" height="195" rx="18" fill="white" stroke="#d9e4e1"/>
+      <circle cy="46" r="28" fill="#e8f3f2"/><path d="M-18 39h36v30h-36zM-12 30h24v9h-24z" fill="#3e7f85"/><path d="M-10 48h20M-10 57h20" stroke="white" stroke-width="3"/>
+      <text y="103" text-anchor="middle" class="title">الدورة</text><text y="130" text-anchor="middle" class="sub">الاسم والسعر</text>
+      <circle cy="168" r="16" fill="#3e7f85"/><text y="173" text-anchor="middle" class="n">1</text>
+    </g>
+    <g transform="translate(570 115)">
+      <rect x="-70" width="140" height="195" rx="18" fill="white" stroke="#d9e4e1"/>
+      <circle cy="46" r="28" fill="#fff4df"/><rect x="-19" y="31" width="38" height="32" rx="4" fill="#d99d3d"/><path d="M-10 41h20M-10 51h20" stroke="white" stroke-width="3"/>
+      <text y="103" text-anchor="middle" class="title">الصف</text><text y="130" text-anchor="middle" class="sub">الدورة والموعد</text>
+      <circle cy="168" r="16" fill="#3e7f85"/><text y="173" text-anchor="middle" class="n">2</text>
+    </g>
+    <g transform="translate(400 115)">
+      <rect x="-70" width="140" height="195" rx="18" fill="white" stroke="#d9e4e1"/>
+      <circle cy="46" r="28" fill="#e8f3f2"/><circle cy="38" r="12" fill="#4d8790"/><path d="M-23 68c3-22 43-22 46 0" fill="#4d8790"/>
+      <text y="103" text-anchor="middle" class="title">الطالب</text><text y="130" text-anchor="middle" class="sub">البيانات والمستوى</text>
+      <circle cy="168" r="16" fill="#3e7f85"/><text y="173" text-anchor="middle" class="n">3</text>
+    </g>
+    <g transform="translate(230 115)">
+      <rect x="-70" width="140" height="195" rx="18" fill="white" stroke="#d9e4e1"/>
+      <circle cy="46" r="28" fill="#eef6ed"/><path d="M-19 47l12 12 27-29" fill="none" stroke="#48966b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="103" text-anchor="middle" class="title">التسجيل</text><text y="130" text-anchor="middle" class="sub">السعر والخصم</text>
+      <circle cy="168" r="16" fill="#3e7f85"/><text y="173" text-anchor="middle" class="n">4</text>
+    </g>
+    <g transform="translate(60 115)">
+      <rect x="-55" width="110" height="195" rx="18" fill="#fffaf0" stroke="#e9cf95"/>
+      <path d="M-25 21h50v56l-7-5-7 5-7-5-7 5-7-5-7 5-8-5z" fill="#d99d3d"/><path d="M-14 37h28M-14 49h28M-14 61h20" stroke="white" stroke-width="3"/>
+      <text y="103" text-anchor="middle" class="title">الفاتورة</text><text y="130" text-anchor="middle" class="sub">تلقائيًا</text>
+      <circle cy="168" r="16" fill="#d99d3d"/><text y="173" text-anchor="middle" class="n">5</text>
+    </g>
+  </g>
+  <rect x="180" y="350" width="540" height="48" rx="12" fill="#e9f4f3"/>
+  <text x="450" y="380" text-anchor="middle" font-size="17" font-weight="700">بعدها راجع ملف الطالب: المستحق ← المقبوض ← المتبقي</text>
+</svg>
