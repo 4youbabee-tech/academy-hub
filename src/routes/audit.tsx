@@ -2,8 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, PageHeader, Select, Table, Td } from "@/components/ui-kit";
-import { dateStr } from "@/lib/format";
+import { Badge, Empty, Field, Input, PageHeader, PaginationControls, Select, Table, Td } from "@/components/ui-kit";
+import { dateStr, localDateKey } from "@/lib/format";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/audit")({
   head: () => ({
@@ -22,18 +24,17 @@ function AuditPage() {
   const [action, setAction] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const debouncedQ = useDebouncedValue(q);
 
-  if (!db) return null;
-  if (!allowed("audit.view")) return <Denied />;
-
-  const entities = useMemo(() => [...new Set(db.audit_log.map((a) => a.entity).filter(Boolean))], [db]);
-  const actions = useMemo(() => [...new Set(db.audit_log.map((a) => a.action).filter(Boolean))], [db]);
+  const entities = useMemo(() => (db ? [...new Set(db.audit_log.map((a) => a.entity).filter(Boolean))] : []), [db]);
+  const actions = useMemo(() => (db ? [...new Set(db.audit_log.map((a) => a.action).filter(Boolean))] : []), [db]);
 
   const rows = useMemo(() => {
+    if (!db) return [];
     let logs = db.audit_log.slice();
 
-    if (q.trim()) {
-      const term = q.trim().toLowerCase();
+    if (debouncedQ.trim()) {
+      const term = debouncedQ.trim().toLowerCase();
       logs = logs.filter(
         (a) =>
           a.user_name?.toLowerCase().includes(term) ||
@@ -43,11 +44,15 @@ function AuditPage() {
     }
     if (entity) logs = logs.filter((a) => a.entity === entity);
     if (action) logs = logs.filter((a) => a.action === action);
-    if (dateFrom) logs = logs.filter((a) => a.at.slice(0, 10) >= dateFrom);
-    if (dateTo) logs = logs.filter((a) => a.at.slice(0, 10) <= dateTo);
+    if (dateFrom) logs = logs.filter((a) => localDateKey(a.at) >= dateFrom);
+    if (dateTo) logs = logs.filter((a) => localDateKey(a.at) <= dateTo);
 
     return logs.sort((a, b) => b.at.localeCompare(a.at));
-  }, [db, q, entity, action, dateFrom, dateTo]);
+  }, [db, debouncedQ, entity, action, dateFrom, dateTo]);
+  const pagination = usePagination(rows, `${debouncedQ}|${entity}|${action}|${dateFrom}|${dateTo}`);
+
+  if (!db) return null;
+  if (!allowed("audit.view")) return <Denied />;
 
   function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
     const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
@@ -58,6 +63,10 @@ function AuditPage() {
       login: "primary",
       logout: "muted",
       mark: "warning",
+      pay: "success",
+      cancel: "warning",
+      archive: "warning",
+      restore: "success",
       init: "muted",
     };
     return map[action] || "muted";
@@ -71,6 +80,10 @@ function AuditPage() {
     login: "دخول",
     logout: "خروج",
     mark: "تسجيل",
+    pay: "دفع",
+    cancel: "إلغاء",
+    archive: "أرشفة",
+    restore: "استرجاع",
     init: "تهيئة",
   };
 
@@ -118,8 +131,9 @@ function AuditPage() {
       {rows.length === 0 ? (
         <Empty text="لا توجد سجلات مطابقة." />
       ) : (
+        <>
         <Table head={["التاريخ", "المستخدم", "الكيان", "الإجراء", "التفاصيل"]}>
-          {rows.map((a) => (
+          {pagination.rows.map((a) => (
             <tr key={a.id}>
               <Td className="whitespace-nowrap text-xs">{dateStr(a.at)}</Td>
               <Td className="font-semibold">{a.user_name || "النظام"}</Td>
@@ -133,6 +147,18 @@ function AuditPage() {
             </tr>
           ))}
         </Table>
+        <PaginationControls
+          page={pagination.page}
+          pageCount={pagination.pageCount}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          from={pagination.from}
+          to={pagination.to}
+          onPrevious={pagination.previous}
+          onNext={pagination.next}
+          onPageSizeChange={pagination.setPageSize}
+        />
+        </>
       )}
     </div>
   );

@@ -2,9 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState, type ChangeEvent } from "react";
 import { Denied } from "@/components/AppShell";
 import { Button, PageHeader, Panel } from "@/components/ui-kit";
-import { audit, replaceDb, transact } from "@/lib/db";
+import { audit, flushDb, replaceDb, transact } from "@/lib/db";
 import { useApp } from "@/lib/session";
 import type { DB } from "@/lib/types";
+import { assertActiveOwnerExists } from "@/lib/domain-guards";
+import { localFileTimestamp } from "@/lib/format";
 
 export const Route = createFileRoute("/backup")({
   head: () => ({
@@ -32,6 +34,9 @@ function isDbBackup(value: unknown): value is DB {
     Array.isArray(db.invoices) &&
     Array.isArray(db.installments) &&
     Array.isArray(db.payments) &&
+    Array.isArray(db.employees) &&
+    Array.isArray(db.payroll_items) &&
+    Array.isArray(db.advances) &&
     Array.isArray(db.expenses) &&
     Array.isArray(db.incomes) &&
     Array.isArray(db.audit_log)
@@ -55,19 +60,21 @@ function BackupPage() {
 
   if (!db) return null;
   if (!allowed("backup.view")) return <Denied />;
+  const currentDb = db;
 
   const canExport = allowed("backup.create");
   const canRestore = allowed("backup.restore");
 
-  function exportBackup() {
+  async function exportBackup() {
     try {
-      const payload = JSON.stringify(db, null, 2);
+      await flushDb();
+      const payload = JSON.stringify(currentDb, null, 2);
       const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const stamp = localFileTimestamp();
       a.href = url;
-      a.download = `${safeFilePart(db.settings.institute_name)}-backup-${stamp}.json`;
+      a.download = `${safeFilePart(currentDb.settings.institute_name)}-backup-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -103,16 +110,19 @@ function BackupPage() {
         throw new Error("الملف المختار ليس نسخة احتياطية صالحة لـ Academy Hub.");
       }
 
-      if (parsed.schema_version > db.schema_version) {
+      if (parsed.schema_version > currentDb.schema_version) {
         throw new Error(
           `نسخة الاحتياط أحدث من إصدار قاعدة البيانات الحالي (v${parsed.schema_version}). حدّث البرنامج أولاً ثم أعد المحاولة.`,
         );
       }
 
+      assertActiveOwnerExists(parsed);
+
       replaceDb(parsed);
       transact((draft) =>
         audit(draft, actor, "backup", null, "restore", `استعادة نسخة احتياطية من الملف ${file.name}`),
       );
+      await flushDb();
 
       setMessage("تمت استعادة النسخة الاحتياطية بنجاح.");
     } catch (e) {

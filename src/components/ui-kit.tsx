@@ -6,6 +6,7 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 import { cn } from "@/lib/utils";
+import { PAGE_SIZE_OPTIONS } from "@/hooks/use-pagination";
 
 /* ---------- Button ---------- */
 
@@ -167,6 +168,63 @@ export function Td({ children, className }: { children?: ReactNode; className?: 
 
 export function Empty({ text }: { text: string }) {
   return <p className="panel p-8 text-center text-sm text-muted-foreground">{text}</p>;
+}
+
+export function PaginationControls({
+  page,
+  pageCount,
+  pageSize,
+  total,
+  from,
+  to,
+  onPrevious,
+  onNext,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  total: number;
+  from: number;
+  to: number;
+  onPrevious: () => void;
+  onNext: () => void;
+  onPageSizeChange: (size: number) => void;
+}) {
+  if (total === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-3 py-2 text-xs no-print">
+      <span className="text-muted-foreground">
+        عرض {from}–{to} من {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-muted-foreground">
+          عدد السجلات
+          <Select
+            className="w-20 py-1"
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <Button variant="secondary" onClick={onPrevious} disabled={page <= 1}>
+          السابق
+        </Button>
+        <span className="min-w-20 text-center tabular-nums">
+          {page} / {pageCount}
+        </span>
+        <Button variant="secondary" onClick={onNext} disabled={page >= pageCount}>
+          التالي
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /* ---------- Modal ---------- */

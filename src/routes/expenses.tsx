@@ -2,9 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { insert, update } from "@/lib/db";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
+import { insert } from "@/lib/db";
 import { dateStr, money, toMinor, today } from "@/lib/format";
+import { payrollItemCost, voidExpense } from "@/lib/finance";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/expenses")({
   head: () => ({
@@ -27,18 +30,38 @@ function ExpensesPage() {
   const [form, setForm] = useState({ category: "", amount: "", date: today(), note: "" });
   const [error, setError] = useState<string | null>(null);
   const [voidExpenseId, setVoidExpenseId] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q);
 
-  const expenses = useMemo(() => (db ? db.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)) : []), [db]);
+  const expenses = useMemo(() => {
+    if (!db) return [];
+    const term = debouncedQ.trim().toLowerCase();
+    return db.expenses
+      .filter((expense) => !term || expense.category.toLowerCase().includes(term) || expense.note.toLowerCase().includes(term))
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [db, debouncedQ]);
   const incomes = useMemo(
-    () => (db ? db.incomes.filter((i) => !i.is_void).slice().sort((a, b) => b.date.localeCompare(a.date)) : []),
-    [db],
+    () => {
+      if (!db) return [];
+      const term = debouncedQ.trim().toLowerCase();
+      return db.incomes
+        .filter((income) => !income.is_void)
+        .filter((income) => !term || income.source.toLowerCase().includes(term) || income.note.toLowerCase().includes(term))
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date));
+    },
+    [db, debouncedQ],
   );
+  const expensePagination = usePagination(expenses, `expense|${debouncedQ}`);
+  const incomePagination = usePagination(incomes, `income|${debouncedQ}`);
 
   if (!db) return null;
   if (!allowed("expenses.view")) return <Denied />;
+  const currentDb = db;
   const canEdit = allowed("expenses.create");
-  const cur = db.settings.currency;
-  const voidExpense = voidExpenseId ? db.expenses.find((e) => e.id === voidExpenseId) ?? null : null;
+  const cur = currentDb.settings.currency;
+  const expenseToVoid = voidExpenseId ? currentDb.expenses.find((e) => e.id === voidExpenseId) ?? null : null;
 
   function save() {
     const amount = toMinor(form.amount);
@@ -66,23 +89,22 @@ function ExpensesPage() {
   }
 
   function confirmVoidExpense() {
-    if (!voidExpense) return;
-    update(
-      "expenses",
-      voidExpense.id,
-      { is_void: true },
-      actor,
-      `إلغاء مصروف ${voidExpense.category}`,
-    );
-    setVoidExpenseId(null);
+    if (!expenseToVoid) return;
+    try {
+      voidExpense(expenseToVoid.id, actor);
+      setVoidExpenseId(null);
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
   }
 
-  const totalOperatingExpenses = expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
-  const totalPaidPayroll = db.payroll_items
+  const totalOperatingExpenses = currentDb.expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
+  const totalPaidPayroll = currentDb.payroll_items
     .filter((p) => p.status === "paid")
-    .reduce((s, p) => s + p.net + p.advance_deducted, 0);
+    .reduce((sum, item) => sum + payrollItemCost(item), 0);
   const totalCompanyExpenses = totalOperatingExpenses + totalPaidPayroll;
-  const totalInc = incomes.reduce((s, e) => s + e.amount, 0);
+  const totalInc = currentDb.incomes.filter((income) => !income.is_void).reduce((sum, income) => sum + income.amount, 0);
 
   return (
     <div>
@@ -124,12 +146,20 @@ function ExpensesPage() {
         </Button>
       </div>
 
+      <Input
+        className="mb-4"
+        placeholder={tab === "expense" ? "بحث في المصاريف..." : "بحث في المداخيل الأخرى..."}
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+      />
+
       {tab === "expense" ? (
         expenses.length === 0 ? (
           <Empty text="لا توجد مصاريف." />
         ) : (
+          <>
           <Table head={["البند", "المبلغ", "التاريخ", "ملاحظة", "الحالة", ""]}>
-            {expenses.map((e) => (
+            {expensePagination.rows.map((e) => (
               <tr key={e.id} className={e.is_void ? "opacity-60" : ""}>
                 <Td className="font-semibold">{e.category}</Td>
                 <Td className="tabular-nums">{money(e.amount, cur)}</Td>
@@ -146,6 +176,18 @@ function ExpensesPage() {
               </tr>
             ))}
           </Table>
+          <PaginationControls
+            page={expensePagination.page}
+            pageCount={expensePagination.pageCount}
+            pageSize={expensePagination.pageSize}
+            total={expensePagination.total}
+            from={expensePagination.from}
+            to={expensePagination.to}
+            onPrevious={expensePagination.previous}
+            onNext={expensePagination.next}
+            onPageSizeChange={expensePagination.setPageSize}
+          />
+          </>
         )
       ) : (
         <>
@@ -155,8 +197,9 @@ function ExpensesPage() {
           {incomes.length === 0 ? (
             <Empty text="لا توجد مداخيل فعلية." />
           ) : (
+            <>
             <Table head={["المصدر", "المبلغ", "التاريخ", "ملاحظة"]}>
-              {incomes.map((e) => (
+              {incomePagination.rows.map((e) => (
                 <tr key={e.id}>
                   <Td className="font-semibold">{e.source}</Td>
                   <Td className="tabular-nums">{money(e.amount, cur)}</Td>
@@ -165,6 +208,18 @@ function ExpensesPage() {
                 </tr>
               ))}
             </Table>
+            <PaginationControls
+              page={incomePagination.page}
+              pageCount={incomePagination.pageCount}
+              pageSize={incomePagination.pageSize}
+              total={incomePagination.total}
+              from={incomePagination.from}
+              to={incomePagination.to}
+              onPrevious={incomePagination.previous}
+              onNext={incomePagination.next}
+              onPageSizeChange={incomePagination.setPageSize}
+            />
+            </>
           )}
         </>
       )}
@@ -175,7 +230,7 @@ function ExpensesPage() {
             {tab === "expense" ? (
               <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 <option value="">— اختر —</option>
-                {db.expense_categories.map((c) => (
+                {currentDb.expense_categories.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -206,21 +261,22 @@ function ExpensesPage() {
         </div>
       </Modal>
 
-      <Modal open={!!voidExpense} title="تأكيد إلغاء المصروف" onClose={() => setVoidExpenseId(null)}>
-        {voidExpense ? (
+      <Modal open={!!expenseToVoid} title="تأكيد إلغاء المصروف" onClose={() => setVoidExpenseId(null)}>
+        {expenseToVoid ? (
           <div className="space-y-4">
             <div className="rounded-xl border bg-muted/20 p-4 text-sm">
               <p className="font-bold">هل أنت متأكد من إلغاء هذا المصروف؟</p>
               <div className="mt-3 space-y-1 text-muted-foreground">
-                <p>البند: <b className="text-foreground">{voidExpense.category}</b></p>
-                <p>المبلغ: <b className="text-foreground">{money(voidExpense.amount, cur)}</b></p>
-                <p>التاريخ: <b className="text-foreground">{dateStr(voidExpense.date)}</b></p>
-                {voidExpense.note ? <p>الملاحظة: <b className="text-foreground">{voidExpense.note}</b></p> : null}
+                <p>البند: <b className="text-foreground">{expenseToVoid.category}</b></p>
+                <p>المبلغ: <b className="text-foreground">{money(expenseToVoid.amount, cur)}</b></p>
+                <p>التاريخ: <b className="text-foreground">{dateStr(expenseToVoid.date)}</b></p>
+                {expenseToVoid.note ? <p>الملاحظة: <b className="text-foreground">{expenseToVoid.note}</b></p> : null}
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
               سيبقى المصروف محفوظًا في السجل بحالة «ملغى»، لكنه لن يدخل في إجمالي المصاريف الفعلية.
             </p>
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setVoidExpenseId(null)}>
                 تراجع

@@ -2,16 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td } from "@/components/ui-kit";
 import { insert, update } from "@/lib/db";
 import {
   cancelEnrollmentWithInvoice,
   createEnrollmentWithInvoice,
-  invoiceBalance,
+  invoiceFinancials,
   updateEnrollmentWithInvoice,
 } from "@/lib/finance";
 import { dateStr, fromMinor, money, today, toMinor, WEEKDAYS } from "@/lib/format";
 import type { Enrollment, Klass } from "@/lib/types";
+import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/classes")({
   head: () => ({
@@ -72,24 +73,31 @@ function ClassesPage() {
     return m;
   }, [db]);
 
+  const classes = useMemo(() => (db ? db.classes.slice() : []), [db]);
+  const registrants = useMemo(() => {
+    if (!db || !registrantsFor) return [];
+    return db.enrollments
+      .filter((enrollment) => enrollment.class_id === registrantsFor.id)
+      .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
+  }, [db, registrantsFor]);
+  const classPagination = usePagination(classes, "classes");
+  const registrantPagination = usePagination(registrants, registrantsFor?.id ?? "none");
+
   if (!db) return null;
   if (!allowed("classes.view")) return <Denied />;
+  const currentDb = db;
   const canEdit = allowed("classes.create");
   const canEnroll = allowed("enrollments.create");
-  const cur = db.settings.currency;
+  const canManageEnrollments = allowed("enrollments.update");
+  const canViewFinance = allowed("finance.view");
+  const cur = currentDb.settings.currency;
 
-  const courseName = (id: string) => db.courses.find((c) => c.id === id)?.name ?? "—";
-  const teacherName = (id: string | null) => db.employees.find((e) => e.id === id)?.full_name ?? "—";
-
-  const registrants = registrantsFor
-    ? db.enrollments
-        .filter((e) => e.class_id === registrantsFor.id && e.status !== "cancelled")
-        .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at))
-    : [];
+  const courseName = (id: string) => currentDb.courses.find((c) => c.id === id)?.name ?? "—";
+  const teacherName = (id: string | null) => currentDb.employees.find((e) => e.id === id)?.full_name ?? "—";
 
   function openNew() {
     setEditing(null);
-    setForm({ ...EMPTY, course_id: db.courses[0]?.id ?? "" });
+    setForm({ ...EMPTY, course_id: currentDb.courses[0]?.id ?? "" });
     setSlots([]);
     setError(null);
     setOpen(true);
@@ -136,7 +144,7 @@ function ClassesPage() {
   }
 
   function openEnroll(k: Klass) {
-    const course = db.courses.find((c) => c.id === k.course_id);
+    const course = currentDb.courses.find((c) => c.id === k.course_id);
     setEnrollFor(k);
     setEnrollForm({
       student_id: "",
@@ -152,7 +160,7 @@ function ClassesPage() {
     const price = toMinor(priceText);
     const discount = toMinor(discountText);
     const tuition = Math.max(0, price - discount);
-    const dueDate = firstDueDate || new Date().toISOString().slice(0, 10);
+    const dueDate = firstDueDate || today();
     // استحقاق داخلي واحد فقط لقيمة الدورة؛ العامل غير ملزم بخطة أقساط.
     const installments = tuition > 0 ? [{ due_date: dueDate, amount: tuition }] : [];
     return { price, discount, tuition, installments };
@@ -161,7 +169,7 @@ function ClassesPage() {
   function submitEnroll() {
     if (!enrollFor) return;
     if (!enrollForm.student_id) return setEnrollError("اختر الطالب");
-    const exists = db.enrollments.some(
+    const exists = currentDb.enrollments.some(
       (e) => e.class_id === enrollFor.id && e.student_id === enrollForm.student_id && e.status === "active",
     );
     if (exists) return setEnrollError("الطالب مسجّل مسبقًا في هذا الصف");
@@ -198,8 +206,8 @@ function ClassesPage() {
   }
 
   function openEnrollmentEdit(enrollment: Enrollment) {
-    const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
-    const invoiceInstallments = invoice ? db.installments.filter((i) => i.invoice_id === invoice.id) : [];
+    const invoice = currentDb.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
+    const invoiceInstallments = invoice ? currentDb.installments.filter((i) => i.invoice_id === invoice.id) : [];
     const registration = invoiceInstallments.find((i) => i.kind === "registration");
 
     setEditingEnrollment(enrollment);
@@ -215,9 +223,9 @@ function ClassesPage() {
 
   function submitEnrollmentEdit() {
     if (!editingEnrollment) return;
-    const invoice = db.invoices.find((i) => i.enrollment_id === editingEnrollment.id && i.status !== "cancelled");
+    const invoice = currentDb.invoices.find((i) => i.enrollment_id === editingEnrollment.id && i.status !== "cancelled");
     const firstDueDate = invoice
-      ? db.installments.find((i) => i.invoice_id === invoice.id && i.kind !== "registration")?.due_date
+      ? currentDb.installments.find((i) => i.invoice_id === invoice.id && i.kind !== "registration")?.due_date
       : undefined;
     const { price, discount, installments } = buildInstallments(
       editEnrollForm.price,
@@ -260,13 +268,14 @@ function ClassesPage() {
     <div>
       <PageHeader
         title="الصفوف والجداول"
-        subtitle={`${db.classes.length} صف`}
+        subtitle={`${currentDb.classes.length} صف`}
         actions={canEdit ? <Button onClick={openNew}>+ صف جديد</Button> : null}
       />
 
-      {db.classes.length ? (
+      {classes.length ? (
+        <>
         <Table head={["الصف", "الدورة", "المدرّس", "الفصل", "الفترة", "المسجّلون", "الحالة", ""]}>
-          {db.classes.map((k) => (
+          {classPagination.rows.map((k) => (
             <tr key={k.id}>
               <Td className="font-semibold">{k.name}</Td>
               <Td>{courseName(k.course_id)}</Td>
@@ -310,6 +319,18 @@ function ClassesPage() {
             </tr>
           ))}
         </Table>
+        <PaginationControls
+          page={classPagination.page}
+          pageCount={classPagination.pageCount}
+          pageSize={classPagination.pageSize}
+          total={classPagination.total}
+          from={classPagination.from}
+          to={classPagination.to}
+          onPrevious={classPagination.previous}
+          onNext={classPagination.next}
+          onPageSizeChange={classPagination.setPageSize}
+        />
+        </>
       ) : (
         <Empty text="لا توجد صفوف بعد." />
       )}
@@ -320,19 +341,26 @@ function ClassesPage() {
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
           <Field label="الدورة">
-            <Select value={form.course_id} onChange={(e) => setForm({ ...form, course_id: e.target.value })}>
+            <Select
+              value={form.course_id}
+              onChange={(e) => setForm({ ...form, course_id: e.target.value })}
+              disabled={!!editing && currentDb.enrollments.some((enrollment) => enrollment.class_id === editing.id)}
+            >
               <option value="">— اختر —</option>
-              {db.courses.map((c) => (
+              {currentDb.courses.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </Select>
+            {editing && currentDb.enrollments.some((enrollment) => enrollment.class_id === editing.id) ? (
+              <span className="block text-xs text-muted-foreground">لا يمكن تغيير الدورة لأن الصف يحتوي على سجلات تسجيل.</span>
+            ) : null}
           </Field>
           <Field label="المدرّس">
             <Select value={form.teacher_id} onChange={(e) => setForm({ ...form, teacher_id: e.target.value })}>
               <option value="">— بدون —</option>
-              {db.employees
+              {currentDb.employees
                 .filter((e) => e.kind === "teacher" && e.active)
                 .map((e) => (
                   <option key={e.id} value={e.id}>
@@ -438,7 +466,7 @@ function ClassesPage() {
           <Field label="الطالب">
             <Select value={enrollForm.student_id} onChange={(e) => setEnrollForm({ ...enrollForm, student_id: e.target.value })}>
               <option value="">— اختر —</option>
-              {db.students
+              {currentDb.students
                 .filter((s) => s.status === "active")
                 .map((s) => (
                   <option key={s.id} value={s.id}>
@@ -481,13 +509,14 @@ function ClassesPage() {
 
       <Modal open={!!registrantsFor} title={`المسجّلون — ${registrantsFor?.name ?? ""}`} onClose={() => setRegistrantsFor(null)} wide>
         {registrants.length ? (
-          <Table head={["الطالب", "تاريخ التسجيل", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
-            {registrants.map((enrollment) => {
-              const student = db.students.find((s) => s.id === enrollment.student_id);
-              const invoice = db.invoices.find((i) => i.enrollment_id === enrollment.id && i.status !== "cancelled");
-              const remaining = invoice ? invoiceBalance(db, invoice.id) : 0;
-              const total = invoice?.total ?? 0;
-              const paid = Math.max(0, total - remaining);
+          <>
+          <Table head={canViewFinance
+            ? ["الطالب", "تاريخ التسجيل", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
+            : ["الطالب", "تاريخ التسجيل", "الحالة", ""]}>
+            {registrantPagination.rows.map((enrollment) => {
+              const student = currentDb.students.find((s) => s.id === enrollment.student_id);
+              const invoice = currentDb.invoices.find((i) => i.enrollment_id === enrollment.id);
+              const financials = invoice ? invoiceFinancials(currentDb, invoice) : { total: 0, paid: 0, due: 0 };
               return (
                 <tr key={enrollment.id}>
                   <Td>
@@ -496,16 +525,20 @@ function ClassesPage() {
                     </Link>
                   </Td>
                   <Td>{dateStr(enrollment.enrolled_at)}</Td>
-                  <Td className="tabular-nums">{money(total, cur)}</Td>
-                  <Td className="tabular-nums">{money(paid, cur)}</Td>
-                  <Td className={remaining > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(remaining, cur)}</Td>
+                  {canViewFinance ? (
+                    <>
+                      <Td className="tabular-nums">{money(financials.total, cur)}</Td>
+                      <Td className="tabular-nums">{money(financials.paid, cur)}</Td>
+                      <Td className={financials.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(financials.due, cur)}</Td>
+                    </>
+                  ) : null}
                   <Td>
                     <Badge tone={enrollment.status === "active" ? "success" : "muted"}>
                       {enrollment.status === "active" ? "نشط" : enrollment.status === "completed" ? "منتهٍ" : enrollment.status === "withdrawn" ? "منسحب" : "ملغى"}
                     </Badge>
                   </Td>
                   <Td>
-                    {canEnroll && enrollment.status === "active" ? (
+                    {canManageEnrollments && enrollment.status === "active" ? (
                       <div className="flex flex-wrap gap-1">
                         <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
                           تعديل التسجيل
@@ -526,6 +559,18 @@ function ClassesPage() {
               );
             })}
           </Table>
+          <PaginationControls
+            page={registrantPagination.page}
+            pageCount={registrantPagination.pageCount}
+            pageSize={registrantPagination.pageSize}
+            total={registrantPagination.total}
+            from={registrantPagination.from}
+            to={registrantPagination.to}
+            onPrevious={registrantPagination.previous}
+            onNext={registrantPagination.next}
+            onPageSizeChange={registrantPagination.setPageSize}
+          />
+          </>
         ) : (
           <Empty text="لا يوجد طلاب مسجلون في هذا الصف." />
         )}
@@ -535,7 +580,7 @@ function ClassesPage() {
         <div className="space-y-3">
           <Field label="الطالب">
             <Input
-              value={db.students.find((s) => s.id === editingEnrollment?.student_id)?.full_name || "—"}
+              value={currentDb.students.find((s) => s.id === editingEnrollment?.student_id)?.full_name || "—"}
               disabled
             />
           </Field>
@@ -577,7 +622,7 @@ function ClassesPage() {
       <Modal open={!!cancelEnrollment} title="إلغاء تسجيل الطالب" onClose={() => setCancelEnrollment(null)}>
         <div className="space-y-3">
           <p className="text-sm">
-            هل تريد إلغاء تسجيل <b>{db.students.find((s) => s.id === cancelEnrollment?.student_id)?.full_name || "الطالب"}</b>؟
+            هل تريد إلغاء تسجيل <b>{currentDb.students.find((s) => s.id === cancelEnrollment?.student_id)?.full_name || "الطالب"}</b>؟
           </p>
           <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
             إذا كان على التسجيل سند قبض فعلي، سيمنع النظام الإلغاء إلى أن يتم إلغاء السند المالي أولًا.

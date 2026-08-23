@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
-import { transact, update } from "@/lib/db";
+import { audit, transact } from "@/lib/db";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -39,14 +39,13 @@ function SettingsPage() {
   if (!allowed("settings.view")) return <Denied />;
   const canEdit = allowed("settings.update");
 
-  const cur = db.settings.currency;
-
   function saveSettings() {
     if (!settings) return;
     try {
       transact((d) => {
         d.settings = { ...settings };
         d.expense_categories = expenseCategories;
+        audit(d, actor, "settings", null, "update", "تحديث إعدادات المعهد");
       });
       setSuccess("تم حفظ الإعدادات بنجاح!");
       setTimeout(() => setSuccess(null), 3000);
@@ -69,6 +68,9 @@ function SettingsPage() {
   function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith("image/")) return setError("الملف المختار ليس صورة صالحة");
+    if (file.size > 2 * 1024 * 1024) return setError("حجم الشعار يجب ألا يتجاوز 2 MB");
+    setError(null);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;

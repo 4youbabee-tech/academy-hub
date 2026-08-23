@@ -1,116 +1,70 @@
 # Academy Hub
 
-أريد تطوير برنامج Desktop حديث لإدارة معهد صغير، يعمل Offline بالكامل ويدعم العربية RTL، ويكون قابلًا للتطوير مستقبلًا.
+نظام عربي لإدارة معهد تعليمي، يعمل حاليًا كتطبيق Web محلي ويحفظ البيانات في IndexedDB. جميع البيانات الموجودة أثناء التطوير تجريبية.
 
-المطلوب أن يشمل النظام:
+## نطاق النظام الحالي
 
-- إدارة الطلاب وملف كامل لكل طالب مع التاريخ الأكاديمي والمالي.
+- الطلاب مع الأرشفة والاسترجاع دون حذف السجل التاريخي.
+- الدورات والصفوف وتسجيل الطلاب.
+- الفواتير وسندات القبض والمستحق والمقبوض والمتبقي.
+- المصاريف التشغيلية والمداخيل الجانبية المستقلة.
+- الموظفون والرواتب والسلف وسند الراتب A5.
+- المستخدمون والأدوار والصلاحيات وحماية حسابات المالك.
+- Dashboard والتقارير وCSV وسجل التدقيق ونسخ JSON الاحتياطية.
+- إعدادات المعهد والشعار والطباعة.
 
-- تسجيل الطالب في Courses / Levels / Classes عبر Enrollments مستقلة، مع الاحتفاظ بكل التسجيلات القديمة.
+لا يحتوي Academy Hub على الحضور أو العلامات أو الامتحانات أو الشهادات أو أوزان التقييم، وهذه الوحدات ملغاة من نطاق المشروع.
 
-- إدارة الدورات، المواد، الصفوف، المجموعات، المدرسين والجداول.
+## التدفق الأساسي
 
-- حضور وغياب الطلاب وتقاريره.
+إضافة طالب ← إضافة دورة وسعر ← إنشاء صف ← تسجيل الطالب ← إنشاء فاتورة تلقائيًا ← تسجيل سند قبض من «الإيصالات والفواتير» ← تحديث ملف الطالب وDashboard والتقارير.
 
-- الأقساط والدفعات والخصومات والمتأخرات والإيصالات وكشف حساب الطالب.
+سندات قبض الطلاب هي المصدر الوحيد لمقبوضات الطلاب، ولا تُسجّل مرة ثانية ضمن المداخيل الأخرى. السجلات المالية الملغاة تبقى للتدقيق ولا تدخل في الحسابات.
 
-- الموظفين والمدرسين والرواتب والسلف والحسميات والمكافآت.
+## التشغيل المحلي
 
-- المصاريف، المداخيل، الصندوق، وحساب الربح والخسارة.
-
-- الامتحانات والعلامات والتقييمات، مع إمكانية تحديد نسب Final / Midterm / Quiz / Attendance وغيرها من الإعدادات.
-
-- شهادات نجاح/إتمام/حضور مع رقم شهادة فريد وطباعة PDF وإمكانية QR Verification مستقبلًا.
-
-- Dashboard حديثة تعرض أهم الأرقام والتنبيهات والتقارير.
-
-- تقارير شاملة قابلة للطباعة وPDF وExcel.
-
-- Settings أتحكم منها باسم المعهد، الشعار، اسم المدير، الهاتف، العنوان، العملة، السنة الدراسية، أرقام الإيصالات والشهادات، أنواع المصاريف، نظام العلامات وغيرها.
-
-- Users / Roles / Permissions مثل Owner, Director, Accountant, Secretary, Teacher.
-
-- Audit Log لكل العمليات الحساسة خصوصًا المالية وتعديل العلامات والصلاحيات.
-
-- Backup & Restore محلي آمن مع إمكانية Cloud Backup مستقبلًا.
-
-- Search وFilters سريعة في جميع الأقسام.
-
-قواعد مهمة في التصميم
-
-لا أريد وضع كل بيانات الطالب داخل جدول واحد. يجب تصميم Database صحيحة بجداول منفصلة مثل Students, Enrollments, Courses, Attendance, Exams, Grades, Payments, Employees, Payroll, Expenses, Certificates وغيرها.
-
-يجب الحفاظ على Historical Data، أي تغيير سعر دورة أو راتب أو إعداد مستقبلي لا يغيّر السجلات القديمة.
-
-العمليات المالية يجب أن تكون Transactional، ولا يتم حذف السجلات المالية الحساسة بدون Audit/Cancel/Void واضح.
-
-البرنامج يجب أن يعمل كـ Desktop EXE حقيقي بدون الاعتماد على الإنترنت.
-
-حماية البرنامج
-
-أريد نظام Licensing يمنع نسخ EXE وتشغيله على كمبيوتر آخر.
-
-يكون لكل نسخة:
-
-License ID + Institute Name + Device Fingerprint + Activation Status.
-
-لا يعتمد فقط على MAC Address، ويكون التخزين المحلي للترخيص آمنًا.
-
-وأريد كمالك البرنامج إمكانية:
-
-Deactivate Old Device → Activate New Device
-
-إذا تعطل جهاز العميل أو تم تغييره.
-
-العميل يحصل على Installer/EXE فقط ولا يحصل على Source Code أو Secrets.
-
-قابلية التطوير
-
-صمم Architecture تسمح مستقبلًا بإضافة:
-
-Web/Cloud، مزامنة عدة أجهزة، Student/Parent Portal، WhatsApp، Online Registration، QR Certificate Verification وMultiple Branches، بدون الحاجة لإعادة بناء البرنامج من الصفر.
-
-قبل البرمجة
-
-قبل كتابة أي كود أريد منك أولًا إرسال:
-
-1. Architecture المقترحة.
-
-2. Database Schema.
-
-3. قائمة الشاشات.
-
-4. Roles & Permissions.
-
-5. Financial Flow.
-
-6. Backup/Restore Strategy.
-
-7. Licensing Strategy.
-
-8. مراحل تنفيذ المشروع.
-
-لا تبدأ البرمجة قبل الاتفاق على هذه النقاط.
-
-الأولوية: برنامج بسيط للمستخدم، قوي داخليًا، آمن للبيانات المالية والأكاديمية، وقابل للتوسع مستقبلًا.
-
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/1f373902-df3f-4b84-a2e0-c52b773ea5da).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+المتطلبات: Node.js حديث وnpm.
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+npm install
 npm run dev
 ```
+
+الحساب الافتراضي عند أول تشغيل:
+
+- اسم المستخدم: `owner`
+- كلمة المرور: `owner123`
+
+يجب تغيير كلمة المرور بعد أول دخول.
+
+## الفحص والبناء
+
+```sh
+npm run typecheck
+npm run lint
+npm run build
+```
+
+أو شغّل الفحوص الثلاثة معًا:
+
+```sh
+npm run check
+```
+
+## البيانات والنسخ الاحتياطي
+
+النسخة الحالية تخزّن البيانات داخل IndexedDB على الجهاز. استخدم صفحة «النسخ الاحتياطي» لتنزيل ملف JSON قبل مسح بيانات المتصفح أو نقل العمل إلى جهاز آخر.
+
+تم عزل التخزين خلف `StorageAdapter`، بينما بقيت قواعد الطلاب والمالية والرواتب والصلاحيات خارج مكوّنات العرض قدر الإمكان. هذا يمهّد للمسار المستقبلي:
+
+React UI → Electron Preload/IPC → Data Access Layer → SQLite داخل مجلد بيانات المستخدم.
+
+## مراحل Desktop المستقبلية
+
+بعد اعتماد نسخة Web المستقرة فقط:
+
+1. Electron مع IPC آمن.
+2. SQLite وDatabase migrations ونسخة احتياطية قبل الترقية.
+3. Windows Installer وGitHub Releases وPatch updates.
+4. ترخيص Offline موقّع مرتبط ببصمة الجهاز؛ المفتاح الخاص يبقى خارج التطبيق دائمًا.
+5. مزامنة Online/Offline لاحقًا بتصميم مستقل للطوابير والتعارضات.
