@@ -247,8 +247,43 @@ async function createMainWindow(url) {
   });
 
   window.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
+    // Receipt/salary printing uses window.open("", "_blank") and writes the
+    // printable document into the resulting about:blank window. Keep that one
+    // tightly-scoped internal popup available, while continuing to deny all
+    // other in-app popups and opening trusted https links in the OS browser.
+    if (externalUrl === "about:blank") {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
+            devTools: isDevelopment,
+          },
+        },
+      };
+    }
+
     if (/^https:\/\//i.test(externalUrl)) void shell.openExternal(externalUrl);
     return { action: "deny" };
+  });
+
+  window.webContents.on("did-create-window", (childWindow, details) => {
+    // A child window is permitted only for the internal print document above.
+    if (details.url !== "about:blank") {
+      childWindow.close();
+      return;
+    }
+
+    // The printable window itself must not be usable as a navigation/popup path.
+    childWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    childWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+      if (navigationUrl !== "about:blank") event.preventDefault();
+    });
   });
   window.webContents.on("will-navigate", (event, navigationUrl) => {
     if (!navigationUrl.startsWith(allowedOrigin)) event.preventDefault();
