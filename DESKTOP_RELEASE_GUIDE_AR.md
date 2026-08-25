@@ -29,7 +29,7 @@ npm run desktop:dist
 
 الملف النهائي يظهر داخل مجلد `release` باسم قريب من:
 
-`Academy-Hub-Setup-1.0.0-x64.exe`
+`Academy-Hub-Setup-1.0.1-x64.exe`
 
 ## الطريقة الأسهل عبر GitHub Actions
 
@@ -39,7 +39,7 @@ npm run desktop:dist
 4. اضغط `Run workflow`.
 5. بعد انتهاء المهمة، نزّل Artifact المسمى `Academy-Hub-Windows-...`.
 
-لإنشاء Release رسمي، أنشئ Tag مثل `v1.0.0` وادفعه إلى GitHub. الـWorkflow سيبني الـInstaller ويرفقه بالـRelease.
+لإنشاء Release رسمي، أنشئ Tag مثل `v1.0.1` وادفعه إلى GitHub. الـWorkflow سيبني الـInstaller ويرفقه بالـRelease.
 
 ## توقيع Windows الاختياري
 
@@ -67,4 +67,3 @@ npm run desktop:dist
 - ملف الترخيص.
 
 لا تفعّل خيار حذف App Data عند إزالة البرنامج إلا إذا طلب الزبون مسح بياناته صراحة.
-

@@ -10,6 +10,7 @@ import { generatePayroll as createPayroll, payPayrollItem, recordAdvance } from 
 import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
+import { printHtmlDocument } from "@/lib/print-document";
 
 export const Route = createFileRoute("/employees")({
   head: () => ({
@@ -137,15 +138,12 @@ function EmployeesPage() {
 
     const employee = currentDb.employees.find((e) => e.id === item.employee_id);
     const settings = currentDb.settings;
-    const win = window.open("", "_blank");
-    if (!win) return;
-
     const monthLabel = item.period || "—";
     const employeeName = employee?.full_name || "—";
     const jobTitle = employee?.job_title || (employee?.kind === "teacher" ? "مدرّس" : "موظف");
     const totalDeductions = item.deduction + item.advance_deducted;
 
-    win.document.write(`<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="UTF-8" />
@@ -194,10 +192,10 @@ function EmployeesPage() {
     </div>
     <div class="footer">سند صرف راتب صادر من نظام ${escapeHtml(settings.institute_name)}</div>
   </div>
-  <script>setTimeout(function () { window.print(); }, 350);</script>
 </body>
-</html>`);
-    win.document.close();
+</html>`;
+
+    printHtmlDocument(html, "A5");
   }
 
   const totalSalaryEntitlement = items.reduce(

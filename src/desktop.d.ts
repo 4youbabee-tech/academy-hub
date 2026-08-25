@@ -35,6 +35,12 @@ interface AcademyDesktopApi {
     create(): Promise<{ cancelled: boolean; path?: string }>;
     restore(): Promise<{ cancelled: boolean; restarting?: boolean; safetyBackup?: string }>;
   };
+  print: {
+    html(request: {
+      html: string;
+      pageSize?: "A4" | "A5";
+    }): Promise<{ printed: boolean; cancelled: boolean; failureReason?: string }>;
+  };
   app: {
     getInfo(): Promise<{ name: string; version: string; packaged: boolean }>;
     checkForUpdates(): Promise<{

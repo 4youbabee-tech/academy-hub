@@ -10,7 +10,9 @@ import {
   shell,
 } from "electron";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
+import { unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
@@ -123,6 +125,79 @@ function requireDatabaseAccess() {
   licenseManager.assertValid();
 }
 
+async function printHtmlDocument({ html, pageSize = "A5" } = {}) {
+  if (typeof html !== "string" || html.trim().length === 0) {
+    throw new Error("محتوى الطباعة فارغ.");
+  }
+
+  const htmlBytes = Buffer.byteLength(html, "utf8");
+  if (htmlBytes > 8 * 1024 * 1024) {
+    throw new Error("محتوى الطباعة أكبر من الحد المسموح.");
+  }
+
+  const normalizedPageSize = pageSize === "A4" ? "A4" : "A5";
+  const temporaryPath = path.join(app.getPath("temp"), `academy-hub-print-${randomUUID()}.html`);
+  const printWindow = new BrowserWindow({
+    width: normalizedPageSize === "A4" ? 900 : 650,
+    height: 900,
+    show: false,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#ffffff",
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      devTools: false,
+    },
+  });
+
+  printWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  try {
+    await writeFile(temporaryPath, html, "utf8");
+    await printWindow.loadFile(temporaryPath);
+    printWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Use a dedicated, tightly sandboxed window so the native Windows print
+    // dialog has a real owner without relying on renderer-created popups.
+    printWindow.show();
+    printWindow.focus();
+
+    return await new Promise((resolve, reject) => {
+      printWindow.webContents.print(
+        {
+          silent: false,
+          printBackground: true,
+          color: true,
+          pageSize: normalizedPageSize,
+        },
+        (success, failureReason) => {
+          if (!printWindow.isDestroyed()) printWindow.close();
+          if (success) {
+            resolve({ printed: true, cancelled: false });
+            return;
+          }
+
+          const reason = failureReason || "تعذر تنفيذ الطباعة.";
+          if (/cancel/i.test(reason)) {
+            resolve({ printed: false, cancelled: true, failureReason: reason });
+            return;
+          }
+          reject(new Error(reason));
+        },
+      );
+    });
+  } finally {
+    if (!printWindow.isDestroyed()) printWindow.close();
+    await unlink(temporaryPath).catch(() => {});
+  }
+}
+
 function installIpcHandlers() {
   handle("academy:license:get-status", () => licenseManager.getStatus());
   handle("academy:license:copy-machine-id", () => {
@@ -193,6 +268,8 @@ function installIpcHandlers() {
     }
   });
 
+  handle("academy:print:html", (payload) => printHtmlDocument(payload));
+
   handle("academy:app:get-info", () => ({
     name: app.getName(),
     version: app.getVersion(),
@@ -247,43 +324,8 @@ async function createMainWindow(url) {
   });
 
   window.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
-    // Receipt/salary printing uses window.open("", "_blank") and writes the
-    // printable document into the resulting about:blank window. Keep that one
-    // tightly-scoped internal popup available, while continuing to deny all
-    // other in-app popups and opening trusted https links in the OS browser.
-    if (externalUrl === "about:blank") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          autoHideMenuBar: true,
-          webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-            webSecurity: true,
-            allowRunningInsecureContent: false,
-            devTools: isDevelopment,
-          },
-        },
-      };
-    }
-
     if (/^https:\/\//i.test(externalUrl)) void shell.openExternal(externalUrl);
     return { action: "deny" };
-  });
-
-  window.webContents.on("did-create-window", (childWindow, details) => {
-    // A child window is permitted only for the internal print document above.
-    if (details.url !== "about:blank") {
-      childWindow.close();
-      return;
-    }
-
-    // The printable window itself must not be usable as a navigation/popup path.
-    childWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    childWindow.webContents.on("will-navigate", (event, navigationUrl) => {
-      if (navigationUrl !== "about:blank") event.preventDefault();
-    });
   });
   window.webContents.on("will-navigate", (event, navigationUrl) => {
     if (!navigationUrl.startsWith(allowedOrigin)) event.preventDefault();

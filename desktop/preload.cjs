@@ -19,6 +19,9 @@ const api = {
     create: () => invoke("academy:backup:create"),
     restore: () => invoke("academy:backup:restore"),
   }),
+  print: Object.freeze({
+    html: (request) => invoke("academy:print:html", request),
+  }),
   app: Object.freeze({
     getInfo: () => invoke("academy:app:get-info"),
     checkForUpdates: () => invoke("academy:app:check-updates"),

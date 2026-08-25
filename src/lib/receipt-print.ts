@@ -1,4 +1,5 @@
 import { money } from "./format";
+import { printHtmlDocument } from "./print-document";
 import type { DB, Payment } from "./types";
 
 function esc(v: unknown): string {
@@ -42,12 +43,10 @@ export function printReceipt(db: DB, payment: Payment): void {
 
   const width = (s.receipt_paper_size || "A5") === "A4" ? "210mm" : "148mm";
   const methodLabel = payment.method === "cash" ? "نقدًا" : payment.method === "bank" ? "مصرف" : "أخرى";
-  const win = window.open("", "_blank");
-  if (!win) return;
-
   const row = (k: string, v: string) => `<div class="row"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
+  const pageSize = (s.receipt_paper_size || "A5") === "A4" ? "A4" : "A5";
 
-  win.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">
+  const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">
 <title>سند قبض ${esc(payment.receipt_no)}</title>
 <style>
   @page { size: ${(s.receipt_paper_size || "A5") === "A4" ? "A4" : "A5"}; margin: 8mm; }
@@ -90,6 +89,7 @@ export function printReceipt(db: DB, payment: Payment): void {
   <div class="total">المقبوض بهذا السند: ${esc(money(payment.amount, s.currency))}</div>
   <div class="sign"><span>توقيع المحاسب: ..................</span><span>توقيع المستلم: ..................</span></div>
   <div class="footer">${esc(s.receipt_footer_text || "شكراً لثقتكم بنا")}</div>
-</div><script>setTimeout(function(){window.print();},400);</script></body></html>`);
-  win.document.close();
+</div></body></html>`;
+
+  printHtmlDocument(html, pageSize);
 }

@@ -1,20 +1,32 @@
-# Academy Hub Desktop print regression fix
+# Academy Hub Desktop print fix — v1.0.1
 
-## Root cause
-`src/lib/receipt-print.ts` and salary receipt printing use `window.open("", "_blank")` to create an `about:blank` print document and then call `window.print()`.
+## المشكلة
 
-The current Electron hardening in `desktop/main.mjs` denied **all** renderer-created windows through `webContents.setWindowOpenHandler()`. As a result, the print window was denied and `window.open()` returned no usable window, so the UI appeared to do nothing when the print icon was pressed.
+كان سند الطالب وسند الراتب يعتمدان على `window.open()` ثم `window.print()`.
+نافذة Electron الرئيسية تمنع النوافذ المنبثقة للحماية، لذلك كان الضغط على زر الطباعة لا يفعل شيئًا.
 
-## Fix
-`desktop/main.mjs` now allows only the tightly-scoped internal `about:blank` print popup. HTTPS links continue to open externally, every other popup remains denied, and the print child itself is prevented from opening further windows or navigating away from `about:blank`.
+تمت تجربة حل أول يسمح لنافذة `about:blank` داخل Electron. هذا الأسلوب موجود في حزمة
+`1.0.0` المرسلة للفحص، لكنه لم يُعتمد في الإصدار النهائي.
 
-This restores both:
-- Student receipt printing (`src/lib/receipt-print.ts`)
-- Salary receipt printing (`src/routes/employees.tsx`)
+## الحل النهائي
 
-No database, schema, licensing, or financial logic was changed.
+```text
+React → Preload/IPC → Electron main → webContents.print() → Windows printer
+```
 
-## Validation performed
-- `node --check desktop/main.mjs` — PASS
+- لا توجد نافذة Popup للطباعة في نسخة Desktop.
+- يتم إنشاء نافذة طباعة داخلية ومعزولة ثم استدعاء نافذة طابعة Windows الأصلية.
+- تبقى جميع النوافذ المنبثقة من الواجهة الرئيسية ممنوعة.
+- تبقى طريقة الطباعة القديمة كخيار احتياطي لنسخة الويب فقط.
+- لم تتغير قاعدة البيانات أو الـSchema أو الترخيص أو الحسابات المالية.
 
-A new Windows installer must be built from this patched source before testing on the customer PC.
+## الملفات الوظيفية المعدلة
+
+- `desktop/main.mjs`
+- `desktop/preload.cjs`
+- `src/desktop.d.ts`
+- `src/lib/print-document.ts`
+- `src/lib/receipt-print.ts`
+- `src/routes/employees.tsx`
+
+تم رفع رقم النسخة إلى `1.0.1` حتى لا تختلط مع حزمة `1.0.0` السابقة.
