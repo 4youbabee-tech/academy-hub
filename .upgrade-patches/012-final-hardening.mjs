@@ -39,7 +39,7 @@ await replace(
 await replace(
   "desktop/database.mjs",
   `      if (users.size !== snapshot.users.length || enrollments.size !== snapshot.enrollments.length || invoices.size !== snapshot.invoices.length) {\n        throw new Error("يوجد معرّف مكرر في النسخة الاحتياطية.");\n      }`,
-  `      for (const collection of COLLECTIONS) {\n        if (idSet(collection).size !== snapshot[collection].length) throw new Error(\`يوجد معرّف مكرر ضمن ${collection} في النسخة الاحتياطية.\`);\n      }`,
+  `      for (const collection of COLLECTIONS) {\n        if (idSet(collection).size !== snapshot[collection].length) throw new Error(\`يوجد معرّف مكرر ضمن \${collection} في النسخة الاحتياطية.\`);\n      }`,
 );
 
 await replace(
