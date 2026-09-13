@@ -1,0 +1,60 @@
+name: Apply Academy upgrade patch
+
+on:
+  push:
+    branches:
+      - academy-v1.1.0-upgrade
+    paths:
+      - ".upgrade-patches/**"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout upgrade branch
+        uses: actions/checkout@v4
+        with:
+          ref: academy-v1.1.0-upgrade
+          fetch-depth: 1
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Apply pending patches
+        shell: bash
+        run: |
+          shopt -s nullglob
+          patches=(.upgrade-patches/*.patch)
+          if [ ${#patches[@]} -eq 0 ]; then
+            echo "No upgrade patches found."
+            exit 0
+          fi
+          for patch in "${patches[@]}"; do
+            echo "Applying $patch"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
+          rm -f .upgrade-patches/*.patch
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Verify patched source
+        run: npm run ci:verify
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Commit verified patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(ui): apply verified Academy upgrade patch"
+          git push origin HEAD:academy-v1.1.0-upgrade
