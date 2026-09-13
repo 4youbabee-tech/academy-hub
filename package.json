@@ -21,6 +21,7 @@
     "test:desktop": "node tests/desktop-harness.mjs",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run build",
+    "ci:verify": "npm run typecheck && npm run lint && npm run test:domain && npm run test:desktop && npm run build",
     "format": "prettier --write ."
   },
   "dependencies": {
