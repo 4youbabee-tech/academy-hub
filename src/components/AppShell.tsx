@@ -1,9 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useApp } from "@/lib/session";
-import { Button, Input, Modal, Panel } from "@/components/ui-kit";
+import { Badge, Button, Input, Modal, Panel, Table, Td } from "@/components/ui-kit";
 import { HelpGuide } from "@/components/HelpGuide";
-import { ROLE_LABELS } from "@/lib/permissions";
+import { ROLE_LABELS, can } from "@/lib/permissions";
+import { studentMonthlyLedger } from "@/lib/finance";
+import { localMonthKey, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -95,6 +97,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const arrears = useMemo(() => {
+    if (!db || !can(user?.role, "finance.view")) return [];
+    const currentMonth = localMonthKey();
+    return db.students.flatMap((student) => {
+      const overdue = studentMonthlyLedger(db, student.id).filter((row) => row.period < currentMonth && row.due > 0);
+      if (!overdue.length) return [];
+      const total = overdue.reduce((sum, row) => sum + row.due, 0);
+      return [{ student, total, overdue }];
+    }).sort((a, b) => b.total - a.total || a.student.full_name.localeCompare(b.student.full_name, "ar"));
+  }, [db, user?.role]);
 
   if (!db) {
     return (
@@ -175,6 +188,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             ☰
           </button>
           <div className="flex-1" />
+          {can(user.role, "finance.view") ? (
+            <Button variant="ghost" onClick={() => setNotificationsOpen(true)} className="relative">
+              🔔
+              {arrears.length ? <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">{arrears.length}</span> : null}
+            </Button>
+          ) : null}
           <div className="text-left">
             <p className="text-sm font-semibold">{user.full_name}</p>
             <p className="text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</p>
@@ -185,6 +204,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>
+
+      <Modal open={notificationsOpen} title="تنبيهات المتأخرات" onClose={() => setNotificationsOpen(false)} extraWide>
+        {arrears.length ? (
+          <Table head={["الطالب", "إجمالي المتأخر", "التفصيل", ""]}>
+            {arrears.map(({ student, total, overdue }) => (
+              <tr key={student.id}>
+                <Td className="font-semibold">{student.full_name}</Td>
+                <Td className="tabular-nums text-destructive">{money(total, db.settings.currency)}</Td>
+                <Td className="text-xs">{overdue.map((row) => `${row.period}: ${money(row.due, db.settings.currency)}`).join("، ")}</Td>
+                <Td><Link to="/students/$id" params={{ id: student.id }} onClick={() => setNotificationsOpen(false)} className="font-semibold text-primary hover:underline">فتح البطاقة</Link></Td>
+              </tr>
+            ))}
+          </Table>
+        ) : (
+          <div className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">لا توجد متأخرات من أشهر سابقة.</div>
+        )}
+      </Modal>
 
       <Modal open={helpOpen} title="كيفية العمل على البرنامج" onClose={() => setHelpOpen(false)} extraWide>\n        <HelpGuide />\n      </Modal>
     </div>

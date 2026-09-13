@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { hashPassword, loadDb, snapshot, subscribe, transact, audit, type Actor } from "./db";
 import type { DB, User } from "./types";
 import { can } from "./permissions";
+import { runMonthlyGeneration } from "./monthly";
 
 const SESSION_KEY = "institute-session-user";
 
@@ -38,6 +39,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => db?.users.find((u) => u.id === userId && u.is_active) ?? null,
     [db, userId],
   );
+
+  useEffect(() => {
+    if (!userId) return;
+    const current = snapshot();
+    const activeUser = current?.users.find((item) => item.id === userId && item.is_active);
+    if (!activeUser) return;
+    try {
+      runMonthlyGeneration(undefined, { id: activeUser.id, name: activeUser.full_name });
+    } catch (error) {
+      console.error("تعذر تشغيل الدورة الشهرية التلقائية", error);
+    }
+  }, [userId]);
 
   const login = useCallback(async (username: string, password: string) => {
     const current = snapshot();

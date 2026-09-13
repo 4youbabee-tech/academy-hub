@@ -38,6 +38,8 @@ export interface Settings {
   receipt_show_notes: boolean;
   receipt_footer_text: string;
   discount_presets: DiscountPreset[];
+  /** Last period processed by the automatic monthly engine. Null means activate from the current month only. */
+  monthly_generation_last_period: string | null;
 }
 
 export interface User extends Base {

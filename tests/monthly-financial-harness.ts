@@ -8,6 +8,7 @@ import {
   studentMonthlyLedger,
 } from "../src/lib/finance";
 import { today } from "../src/lib/format";
+import { runMonthlyGeneration } from "../src/lib/monthly";
 import {
   generatePayroll,
   payrollPaid,
@@ -27,6 +28,7 @@ function nextPeriod(period: string): string {
 }
 
 const next = nextPeriod(currentPeriod);
+const next2 = nextPeriod(next);
 const db = emptyDb();
 db.users.push({
   ...baseFields(), id: actor.id, username: "owner-monthly", full_name: actor.name,
@@ -127,6 +129,15 @@ const nextPayroll = current.payroll_items.find((item) => item.employee_id === "e
 assert.equal(nextPayroll.advance_deducted, 0);
 assert.equal(nextPayroll.advance_ids?.length ?? 0, 0);
 assert.equal(current.payroll_payments.find((item) => item.id === salaryPart1)!.is_void, false);
+
+current.settings.monthly_generation_last_period = currentPeriod;
+runMonthlyGeneration(next2, actor);
+current = snapshot()!;
+assert.equal(current.settings.monthly_generation_last_period, next2);
+assert.equal(current.installments.filter((item) => item.kind === "monthly" && item.period === next).length, 1, "catch-up must not duplicate an existing month");
+assert.equal(current.installments.filter((item) => item.kind === "monthly" && item.period === next2).length, 1, "catch-up must create the missing later month");
+assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next).length, 1);
+assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next2).length, 1, "payroll catch-up must create missing month once");
 
 console.log("Academy Hub monthly billing + partial payroll scenarios: PASS");
 process.exit(0);

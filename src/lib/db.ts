@@ -54,6 +54,7 @@ export function emptyDb(): DB {
       receipt_show_notes: true,
       receipt_footer_text: "شكراً لثقتكم بنا",
       discount_presets: [],
+      monthly_generation_last_period: null,
     },
     expense_categories: ["إيجار", "كهرباء", "قرطاسية", "صيانة", "تسويق", "أخرى"],
     users: [],
