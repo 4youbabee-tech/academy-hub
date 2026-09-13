@@ -6,7 +6,7 @@ import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationContro
 import { insert, update } from "@/lib/db";
 import { dateStr, fromMinor, localMonthKey, money, toMinor, today } from "@/lib/format";
 import type { Employee, PayrollItem } from "@/lib/types";
-import { generatePayroll as createPayroll, payPayrollItem, recordAdvance } from "@/lib/payroll";
+import { generatePayroll as createPayroll, payrollPaid, payrollRemaining, recordAdvance, recordPayrollPayment } from "@/lib/payroll";
 import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
@@ -50,6 +50,7 @@ function EmployeesPage() {
   const [advFor, setAdvFor] = useState<string | null>(null);
   const [adv, setAdv] = useState({ amount: "", reason: "" });
   const [payFor, setPayFor] = useState<PayrollItem | null>(null);
+  const [payAmount, setPayAmount] = useState("");
   const [employeeQ, setEmployeeQ] = useState("");
   const debouncedEmployeeQ = useDebouncedValue(employeeQ);
 
@@ -124,9 +125,12 @@ function EmployeesPage() {
 
   function confirmPay() {
     if (!payFor) return;
+    const amount = toMinor(payAmount);
+    if (amount <= 0) return setError("مبلغ الدفعة غير صالح");
     try {
-      payPayrollItem(payFor.id, actor);
+      recordPayrollPayment(payFor.id, amount, actor, "دفعة راتب");
       setPayFor(null);
+      setPayAmount("");
       setError(null);
     } catch (caught) {
       setError((caught as Error).message);
@@ -202,7 +206,7 @@ function EmployeesPage() {
     (sum, item) => sum + payrollItemCost(item),
     0,
   );
-  const paidNet = items.filter((i) => i.status === "paid").reduce((s, i) => s + i.net, 0);
+  const paidNet = items.reduce((sum, item) => sum + payrollPaid(currentDb, item.id), 0);
   const advancesThisPeriod = currentDb.advances
     .filter((a) => a.date.slice(0, 7) === period)
     .reduce((sum, a) => sum + a.amount, 0);
@@ -314,19 +318,21 @@ function EmployeesPage() {
       {items.length === 0 ? (
         <Empty text="لا يوجد كشف لهذه الفترة." />
       ) : (
-        <Table head={["الموظف", "الأساسي", "خصم السلف", "الصافي", "الحالة", "تاريخ الدفع", ""]}>
+        <Table head={["الموظف", "الأساسي", "خصم السلف", "الصافي", "المدفوع", "المتبقي", "الحالة", "تاريخ الإكمال", ""]}>
           {payrollPagination.rows.map((i) => (
             <tr key={i.id}>
               <Td>{currentDb.employees.find((e) => e.id === i.employee_id)?.full_name ?? "—"}</Td>
               <Td className="tabular-nums">{money(i.base_snapshot, cur)}</Td>
               <Td className="tabular-nums">{money(i.advance_deducted, cur)}</Td>
               <Td className="tabular-nums font-semibold">{money(i.net, cur)}</Td>
-              <Td>{i.status === "paid" ? <Badge tone="success">مدفوع</Badge> : <Badge tone="warning">مسودة</Badge>}</Td>
+              <Td className="tabular-nums text-emerald-700">{money(payrollPaid(currentDb, i.id), cur)}</Td>
+              <Td className={payrollRemaining(currentDb, i.id) > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(payrollRemaining(currentDb, i.id), cur)}</Td>
+              <Td>{i.status === "paid" ? <Badge tone="success">مدفوع</Badge> : i.status === "partial" ? <Badge tone="warning">جزئي</Badge> : <Badge tone="muted">غير مدفوع</Badge>}</Td>
               <Td>{i.paid_at ? dateStr(i.paid_at) : "—"}</Td>
               <Td>
                 <div className="flex flex-wrap gap-1">
                   {i.status !== "paid" && canEdit ? (
-                    <Button variant="secondary" onClick={() => { setPayFor(i); setError(null); }}>
+                    <Button variant="secondary" onClick={() => { setPayFor(i); setPayAmount(fromMinor(payrollRemaining(currentDb, i.id))); setError(null); }}>
                       دفع
                     </Button>
                   ) : null}
@@ -420,7 +426,7 @@ function EmployeesPage() {
         </div>
       </Modal>
 
-      <Modal open={!!payFor} title="تأكيد دفع الراتب" onClose={() => { setPayFor(null); setError(null); }}>
+      <Modal open={!!payFor} title="دفع الراتب" onClose={() => { setPayFor(null); setError(null); }}>
         {payFor ? (
           <div className="space-y-4">
             <div className="rounded-xl border bg-muted/20 p-4 text-sm">
@@ -430,12 +436,17 @@ function EmployeesPage() {
               <p><b>الإضافات:</b> {money(payFor.bonus, cur)}</p>
               <p><b>الحسميات:</b> {money(payFor.deduction, cur)}</p>
               <p><b>السلف:</b> {money(payFor.advance_deducted, cur)}</p>
-              <p className="mt-2 text-base"><b>الصافي المدفوع:</b> {money(payFor.net, cur)}</p>
+              <p className="mt-2"><b>المدفوع سابقاً:</b> {money(payrollPaid(currentDb, payFor.id), cur)}</p>
+              <p><b>المتبقي:</b> {money(payrollRemaining(currentDb, payFor.id), cur)}</p>
             </div>
+            <Field label={`مبلغ الدفعة (${cur})`}>
+              <Input type="number" min="0" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+            </Field>
+            <p className="text-xs text-muted-foreground">يمكن دفع كامل المتبقي أو أي جزء منه. سيبقى الرصيد ظاهراً إلى أن يكتمل الراتب.</p>
             {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setPayFor(null)}>تراجع</Button>
-              <Button onClick={confirmPay}>تأكيد الدفع</Button>
+              <Button onClick={confirmPay}>تسجيل الدفعة</Button>
             </div>
           </div>
         ) : null}

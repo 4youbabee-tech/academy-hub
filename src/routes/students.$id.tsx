@@ -3,7 +3,7 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { invoiceFinancials, studentBalance } from "@/lib/finance";
+import { invoiceFinancials, studentBalance, studentMonthlyLedger } from "@/lib/finance";
 import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
@@ -40,6 +40,7 @@ function StudentProfile() {
   const payments = currentDb.payments
     .filter((p) => p.student_id === student.id)
     .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
+  const monthlyLedger = studentMonthlyLedger(currentDb, student.id);
 
   function courseAndClassForInvoice(invoiceId: string): string {
     const invoice = currentDb.invoices.find((i) => i.id === invoiceId);
@@ -88,6 +89,8 @@ function StudentProfile() {
             ولي الأمر: {student.guardian_name || "—"} {student.guardian_phone ? `(${student.guardian_phone})` : ""}
           </p>
           <p>الهاتف: {student.phone || "—"}</p>
+          <p>اسم الأم: {student.mother_name || "—"}</p>
+          <p>المدرسة: {student.school_name || "—"}</p>
           <p>العنوان: {student.address || "—"}</p>
           {student.notes ? <p className="sm:col-span-2">ملاحظات: {student.notes}</p> : null}
         </div>
@@ -96,8 +99,8 @@ function StudentProfile() {
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
         <Table head={canViewFinance
-          ? ["الصف", "الدورة", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]
-          : ["الصف", "الدورة", "تاريخ التسجيل", "الحالة"]}>
+          ? ["الصف", "العام الدراسي", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]
+          : ["الصف", "العام الدراسي", "تاريخ التسجيل", "الحالة"]}>
           {enrollments.map((e) => {
             const klass = currentDb.classes.find((c) => c.id === e.class_id);
             const course = currentDb.courses.find((c) => c.id === klass?.course_id);
@@ -125,9 +128,28 @@ function StudentProfile() {
         <Empty text="لا توجد تسجيلات." />
       )}
 
+      {canViewFinance && monthlyLedger.length ? (
+        <>
+          <h2 className="mb-2 mt-6 text-sm font-bold">تفصيل الاستحقاقات الشهرية</h2>
+          <Table head={["الشهر", "المستحق", "المدفوع", "المتبقي", "الحالة"]}>
+            {monthlyLedger.map((row) => (
+              <tr key={row.installment_id}>
+                <Td className="font-semibold">{row.period}</Td>
+                <Td className="tabular-nums">{money(row.amount, cur)}</Td>
+                <Td className="tabular-nums text-emerald-700">{money(row.paid, cur)}</Td>
+                <Td className={row.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.due, cur)}</Td>
+                <Td>
+                  {row.status === "paid" ? <Badge tone="success">مدفوع</Badge> : row.status === "partial" ? <Badge tone="warning">جزئي</Badge> : <Badge tone="danger">غير مدفوع</Badge>}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        </>
+      ) : null}
+
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2> : null}
       {canViewFinance && invoices.length ? (
-        <Table head={["الفاتورة", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ"]}>
+        <Table head={["الفاتورة", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ"]}>
           {invoices.map((i) => {
             const financials = invoiceFinancials(currentDb, i);
             return (
@@ -155,7 +177,7 @@ function StudentProfile() {
 
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2> : null}
       {canViewFinance && payments.length ? (
-        <Table head={["رقم السند", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
+        <Table head={["رقم السند", "البيان / الملاحظة", "العام الدراسي / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
           {payments.map((p) => {
             return (
               <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
