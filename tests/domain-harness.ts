@@ -34,7 +34,7 @@ db.users.push(
 );
 db.students.push({
   ...baseFields(), id: "student-1", code: "ST-1", full_name: "طالب اختبار", birth_date: null,
-  gender: "", phone: "", guardian_name: "", guardian_phone: "", address: "",
+  gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "",
   education_level: null, status: "active", archived_at: null, notes: "",
 });
 db.courses.push(
@@ -47,7 +47,7 @@ db.classes.push({
 });
 db.employees.push({
   ...baseFields(), id: "employee-1", full_name: "موظف", kind: "staff", job_title: "إداري",
-  phone: "", hired_at: "2026-01-01", base_salary: 50_000, active: true,
+  phone: "", hired_at: "2026-01-01", ended_at: null, base_salary: 50_000, active: true,
 });
 replaceDb(db);
 
@@ -81,6 +81,14 @@ assert.deepEqual(
 assert.throws(
   () => recordPayment({ invoice_id: invoice.id, amount: 20_001, method: "cash" }, ownerActor),
   /يتجاوز رصيد الفاتورة/,
+);
+assert.throws(
+  () => remove("payments", payment20, ownerActor, "حذف مباشر"),
+  /السجلات المالية لا تُعدّل أو تُحذف مباشرة/,
+);
+assert.throws(
+  () => update("invoices", invoice.id, { total: 1 }, ownerActor, "تعديل مباشر"),
+  /السجلات المالية لا تُعدّل أو تُحذف مباشرة/,
 );
 
 assert.throws(
