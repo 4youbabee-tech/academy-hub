@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { baseFields, emptyDb, replaceDb, snapshot } from "../src/lib/db";
 import {
+  createEnrollmentWithInvoice,
   createMonthlyEnrollmentWithInvoice,
   generateMonthlyStudentCharges,
+  transitionLegacyEnrollmentToMonthly,
+  updateMonthlyEnrollmentTerms,
   profitAndLoss,
   recordPayment,
   studentMonthlyLedger,
@@ -147,6 +150,27 @@ replaceDb(current);
 runMonthlyGeneration(next3, actor);
 current = snapshot()!;
 assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next3).length, 0, "ended employee must not receive future payroll");
+
+const transitionDb = emptyDb();
+transitionDb.users.push({ ...baseFields(), id: actor.id, username: "owner-transition", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
+transitionDb.students.push({ ...baseFields(), id: "student-legacy", code: "ST-L", full_name: "طالب قديم", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });
+transitionDb.courses.push({ ...baseFields(), id: "course-transition", name: "عام انتقال", code: "TR", level: "", hours: 1, default_price: 12_000, active: true });
+transitionDb.classes.push({ ...baseFields(), id: "class-transition", name: "صف انتقال", course_id: "course-transition", teacher_id: null, term: "", capacity: 20, start_date: today(), end_date: today(), schedule: [], status: "running" });
+replaceDb(transitionDb);
+createEnrollmentWithInvoice({ student_id: "student-legacy", class_id: "class-transition", price: 50_000, discount: 0, discount_reason: "تاريخ قديم", installments: [{ due_date: today(), amount: 50_000 }] }, actor);
+let transitionCurrent = snapshot()!;
+const legacyEnrollmentId = transitionCurrent.enrollments[0]!.id;
+const legacyInvoiceId = transitionCurrent.invoices[0]!.id;
+const newMonthlyId = transitionLegacyEnrollmentToMonthly({ enrollment_id: legacyEnrollmentId, monthly_price: 12_000, discount: 2_000, discount_title: "خصم انتقال", start_period: currentPeriod }, actor);
+transitionCurrent = snapshot()!;
+assert.equal(transitionCurrent.enrollments.find((item) => item.id === legacyEnrollmentId)!.status, "withdrawn");
+assert.equal(transitionCurrent.invoices.find((item) => item.id === legacyInvoiceId)!.total, 50_000, "legacy invoice must stay unchanged");
+assert.equal(transitionCurrent.enrollments.find((item) => item.id === newMonthlyId)!.monthly_price_snapshot, 10_000);
+assert.deepEqual(studentMonthlyLedger(transitionCurrent, "student-legacy").map((row) => [row.period, row.amount]), [[currentPeriod, 10_000]]);
+updateMonthlyEnrollmentTerms({ enrollment_id: newMonthlyId, monthly_price: 15_000, discount: 3_000, discount_title: "خصم جديد" }, actor);
+generateMonthlyStudentCharges(next, actor);
+transitionCurrent = snapshot()!;
+assert.deepEqual(studentMonthlyLedger(transitionCurrent, "student-legacy").map((row) => [row.period, row.amount]), [[currentPeriod, 10_000], [next, 12_000]], "term changes must affect future months only");
 
 console.log("Academy Hub monthly billing + partial payroll scenarios: PASS");
 process.exit(0);

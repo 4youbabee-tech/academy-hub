@@ -10,7 +10,9 @@ import {
   createEnrollmentWithInvoice,
   invoiceFinancials,
   stopMonthlyEnrollment,
+  transitionLegacyEnrollmentToMonthly,
   updateEnrollmentWithInvoice,
+  updateMonthlyEnrollmentTerms,
 } from "@/lib/finance";
 import { dateStr, fromMinor, localMonthKey, money, today, toMinor, WEEKDAYS } from "@/lib/format";
 import type { Enrollment, Klass } from "@/lib/types";
@@ -19,9 +21,9 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/classes")({
   head: () => ({
     meta: [
-      { title: "الصفوف والجداول — نظام إدارة المعهد" },
+      { title: "الصفوف والتسجيل — نظام إدارة المعهد" },
       { name: "description", content: "إدارة الصفوف الدراسية والمدرّسين والجداول الأسبوعية وتسجيل الطلاب." },
-      { property: "og:title", content: "الصفوف والجداول — نظام إدارة المعهد" },
+      { property: "og:title", content: "الصفوف والتسجيل — نظام إدارة المعهد" },
       { property: "og:description", content: "الصفوف والمدرّسون والجداول الأسبوعية وتسجيل الطلاب." },
     ],
   }),
@@ -64,6 +66,10 @@ function ClassesPage() {
   const [enrollError, setEnrollError] = useState<string | null>(null);
 
   const [registrantsFor, setRegistrantsFor] = useState<Klass | null>(null);
+  const [registrantQuery, setRegistrantQuery] = useState("");
+  const [transitionEnrollment, setTransitionEnrollment] = useState<Enrollment | null>(null);
+  const [transitionForm, setTransitionForm] = useState(EMPTY_ENROLL);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
   const [editingEnrollment, setEditingEnrollment] = useState<Enrollment | null>(null);
   const [editEnrollForm, setEditEnrollForm] = useState(EMPTY_ENROLL);
   const [editEnrollError, setEditEnrollError] = useState<string | null>(null);
@@ -101,12 +107,19 @@ function ClassesPage() {
   }, [db, classQuery, classStatus]);
   const registrants = useMemo(() => {
     if (!db || !registrantsFor) return [];
+    const term = registrantQuery.trim().toLowerCase();
+    const studentById = new Map(db.students.map((student) => [student.id, student]));
     return db.enrollments
       .filter((enrollment) => enrollment.class_id === registrantsFor.id)
+      .filter((enrollment) => {
+        if (!term) return true;
+        const student = studentById.get(enrollment.student_id);
+        return Boolean(student && (student.full_name.toLowerCase().includes(term) || student.code.toLowerCase().includes(term)));
+      })
       .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
-  }, [db, registrantsFor]);
+  }, [db, registrantsFor, registrantQuery]);
   const classPagination = usePagination(classes, "classes");
-  const registrantPagination = usePagination(registrants, registrantsFor?.id ?? "none");
+  const registrantPagination = usePagination(registrants, `${registrantsFor?.id ?? "none"}|${registrantQuery}`);
 
   if (!db) return null;
   if (!allowed("classes.view")) return <Denied />;
@@ -250,6 +263,25 @@ function ClassesPage() {
 
   function submitEnrollmentEdit() {
     if (!editingEnrollment) return;
+    if (editingEnrollment.billing_mode === "monthly") {
+      const price = toMinor(editEnrollForm.price);
+      const discount = toMinor(editEnrollForm.discount);
+      const preset = currentDb.settings.discount_presets.find((item) => item.id === editEnrollForm.discount_preset_id && item.active);
+      try {
+        updateMonthlyEnrollmentTerms({
+          enrollment_id: editingEnrollment.id,
+          monthly_price: price,
+          discount,
+          discount_preset_id: preset?.id ?? null,
+          discount_title: preset?.title ?? editEnrollForm.reason.trim(),
+        }, actor);
+        setEditingEnrollment(null);
+        setEditEnrollError(null);
+      } catch (e) {
+        setEditEnrollError((e as Error).message);
+      }
+      return;
+    }
     const invoice = currentDb.invoices.find((i) => i.enrollment_id === editingEnrollment.id && i.status !== "cancelled");
     const firstDueDate = invoice
       ? currentDb.installments.find((i) => i.invoice_id === invoice.id && i.kind !== "registration")?.due_date
@@ -277,6 +309,40 @@ function ClassesPage() {
       setEditEnrollError(null);
     } catch (e) {
       setEditEnrollError((e as Error).message);
+    }
+  }
+
+  function openTransition(enrollment: Enrollment) {
+    const klass = currentDb.classes.find((item) => item.id === enrollment.class_id);
+    const course = klass ? currentDb.courses.find((item) => item.id === klass.course_id) : undefined;
+    setTransitionEnrollment(enrollment);
+    setTransitionForm({
+      ...EMPTY_ENROLL,
+      student_id: enrollment.student_id,
+      price: fromMinor(course?.default_price ?? 0),
+      start_period: localMonthKey(),
+    });
+    setTransitionError(null);
+  }
+
+  function submitTransition() {
+    if (!transitionEnrollment) return;
+    const price = toMinor(transitionForm.price);
+    const discount = toMinor(transitionForm.discount);
+    const preset = currentDb.settings.discount_presets.find((item) => item.id === transitionForm.discount_preset_id && item.active);
+    try {
+      transitionLegacyEnrollmentToMonthly({
+        enrollment_id: transitionEnrollment.id,
+        monthly_price: price,
+        discount,
+        discount_preset_id: preset?.id ?? null,
+        discount_title: preset?.title ?? transitionForm.reason.trim(),
+        start_period: transitionForm.start_period,
+      }, actor);
+      setTransitionEnrollment(null);
+      setTransitionError(null);
+    } catch (e) {
+      setTransitionError((e as Error).message);
     }
   }
 
@@ -571,6 +637,7 @@ function ClassesPage() {
       </Modal>
 
       <Modal open={!!registrantsFor} title={`المسجّلون — ${registrantsFor?.name ?? ""}`} onClose={() => setRegistrantsFor(null)} wide>
+        <Input className="mb-3" value={registrantQuery} onChange={(e) => setRegistrantQuery(e.target.value)} placeholder="بحث باسم الطالب أو الرمز" />
         {registrants.length ? (
           <>
           <Table head={canViewFinance
@@ -603,10 +670,11 @@ function ClassesPage() {
                   <Td>
                     {canManageEnrollments && enrollment.status === "active" ? (
                       <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
+                          {enrollment.billing_mode === "monthly" ? "تعديل القسط المستقبلي" : "تعديل التسجيل"}
+                        </Button>
                         {enrollment.billing_mode !== "monthly" ? (
-                          <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
-                            تعديل التسجيل
-                          </Button>
+                          <Button variant="secondary" onClick={() => openTransition(enrollment)}>تحويل إلى شهري</Button>
                         ) : null}
                         <Button
                           variant="ghost"
@@ -649,31 +717,42 @@ function ClassesPage() {
               disabled
             />
           </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={`سعر الدورة (${cur})`}>
-              <Input value={editEnrollForm.price} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, price: e.target.value })} />
-            </Field>
-            <Field label={`الخصم (${cur})`}>
-              <Input value={editEnrollForm.discount} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, discount: e.target.value })} />
-            </Field>
-          </div>
-          <Field label={`رسوم التسجيل (${cur})`}>
-            <Input
-              type="number"
-              step="0.01"
-              value={editEnrollForm.registration_fee}
-              onChange={(e) => setEditEnrollForm({ ...editEnrollForm, registration_fee: e.target.value })}
-            />
-          </Field>
-          <Field label="سبب الخصم / ملاحظة">
-            <Input value={editEnrollForm.reason} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, reason: e.target.value })} />
-          </Field>
-          <p className="rounded-lg bg-muted p-3 text-sm">
-            إجمالي المستحق بعد التعديل: <b>{money(Math.max(0, toMinor(editEnrollForm.price) - toMinor(editEnrollForm.discount) + toMinor(editEnrollForm.registration_fee)), cur)}</b>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            إذا كان على هذا التسجيل سند قبض فعلي، سيمنع النظام تعديل القيم لحماية الحسابات.
-          </p>
+          {editingEnrollment?.billing_mode === "monthly" ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={`القسط الشهري الأساسي (${cur})`}>
+                  <Input value={editEnrollForm.price} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, price: e.target.value })} />
+                </Field>
+                <Field label="الخصم المحدد">
+                  <Select value={editEnrollForm.discount_preset_id} onChange={(e) => {
+                    const id = e.target.value;
+                    const preset = currentDb.settings.discount_presets.find((item) => item.id === id && item.active);
+                    setEditEnrollForm({ ...editEnrollForm, discount_preset_id: id, discount: preset ? fromMinor(preset.amount) : "0", reason: preset?.title ?? "" });
+                  }}>
+                    <option value="">بدون خصم جاهز</option>
+                    {currentDb.settings.discount_presets.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.title} — {money(item.amount, cur)}</option>)}
+                  </Select>
+                </Field>
+                <Field label={`قيمة الخصم (${cur})`}>
+                  <Input value={editEnrollForm.discount} disabled={!!editEnrollForm.discount_preset_id} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, discount: e.target.value })} />
+                </Field>
+              </div>
+              {!editEnrollForm.discount_preset_id ? <Field label="عنوان الخصم اليدوي / ملاحظة"><Input value={editEnrollForm.reason} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, reason: e.target.value })} /></Field> : null}
+              <p className="rounded-lg bg-muted p-3 text-sm">القسط الجديد للأشهر القادمة: <b>{money(Math.max(0, toMinor(editEnrollForm.price) - toMinor(editEnrollForm.discount)), cur)}</b></p>
+              <p className="text-xs text-muted-foreground">الأشهر التي تم توليدها سابقاً لن تتغير. القيم الجديدة تطبق فقط عند توليد استحقاق شهري جديد.</p>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={`قيمة التسجيل القديمة (${cur})`}><Input value={editEnrollForm.price} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, price: e.target.value })} /></Field>
+                <Field label={`الخصم (${cur})`}><Input value={editEnrollForm.discount} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, discount: e.target.value })} /></Field>
+              </div>
+              <Field label={`رسوم التسجيل (${cur})`}><Input type="number" step="0.01" value={editEnrollForm.registration_fee} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, registration_fee: e.target.value })} /></Field>
+              <Field label="سبب الخصم / ملاحظة"><Input value={editEnrollForm.reason} onChange={(e) => setEditEnrollForm({ ...editEnrollForm, reason: e.target.value })} /></Field>
+              <p className="rounded-lg bg-muted p-3 text-sm">إجمالي المستحق بعد التعديل: <b>{money(Math.max(0, toMinor(editEnrollForm.price) - toMinor(editEnrollForm.discount) + toMinor(editEnrollForm.registration_fee)), cur)}</b></p>
+              <p className="text-xs text-muted-foreground">إذا كان على هذا التسجيل سند قبض فعلي، سيمنع النظام تعديل القيم لحماية الحسابات.</p>
+            </>
+          )}
           {editEnrollError ? <p className="text-sm font-semibold text-destructive">{editEnrollError}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setEditingEnrollment(null)}>
@@ -681,6 +760,34 @@ function ClassesPage() {
             </Button>
             <Button onClick={submitEnrollmentEdit}>حفظ التعديل</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!transitionEnrollment} title="تحويل التسجيل القديم إلى شهري" onClose={() => setTransitionEnrollment(null)}>
+        <div className="space-y-3">
+          <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+            <p><b>الطالب:</b> {currentDb.students.find((item) => item.id === transitionEnrollment?.student_id)?.full_name ?? "—"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">الفاتورة القديمة ستبقى كما هي ولن تتغير أو تُحذف. سيُنشأ حساب شهري جديد من الشهر الذي تختاره.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={`القسط الشهري الأساسي (${cur})`}><Input value={transitionForm.price} onChange={(e) => setTransitionForm({ ...transitionForm, price: e.target.value })} /></Field>
+            <Field label="الخصم المحدد">
+              <Select value={transitionForm.discount_preset_id} onChange={(e) => {
+                const id = e.target.value;
+                const preset = currentDb.settings.discount_presets.find((item) => item.id === id && item.active);
+                setTransitionForm({ ...transitionForm, discount_preset_id: id, discount: preset ? fromMinor(preset.amount) : "0", reason: preset?.title ?? "" });
+              }}>
+                <option value="">بدون خصم جاهز</option>
+                {currentDb.settings.discount_presets.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.title} — {money(item.amount, cur)}</option>)}
+              </Select>
+            </Field>
+            <Field label={`قيمة الخصم (${cur})`}><Input value={transitionForm.discount} disabled={!!transitionForm.discount_preset_id} onChange={(e) => setTransitionForm({ ...transitionForm, discount: e.target.value })} /></Field>
+            <Field label="بداية النظام الشهري"><Input type="month" value={transitionForm.start_period} onChange={(e) => setTransitionForm({ ...transitionForm, start_period: e.target.value })} /></Field>
+          </div>
+          {!transitionForm.discount_preset_id ? <Field label="عنوان الخصم اليدوي / ملاحظة"><Input value={transitionForm.reason} onChange={(e) => setTransitionForm({ ...transitionForm, reason: e.target.value })} /></Field> : null}
+          <p className="rounded-lg bg-muted p-3 text-sm">القسط الشهري بعد الخصم: <b>{money(Math.max(0, toMinor(transitionForm.price) - toMinor(transitionForm.discount)), cur)}</b></p>
+          {transitionError ? <p className="text-sm font-semibold text-destructive">{transitionError}</p> : null}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setTransitionEnrollment(null)}>تراجع</Button><Button onClick={submitTransition}>تأكيد التحويل</Button></div>
         </div>
       </Modal>
 

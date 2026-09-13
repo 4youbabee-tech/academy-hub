@@ -366,6 +366,103 @@ export function createMonthlyEnrollmentWithInvoice(
   });
 }
 
+/** Converts one active legacy registration to a new monthly account without altering its historical invoice. */
+export function transitionLegacyEnrollmentToMonthly(
+  args: {
+    enrollment_id: ID;
+    monthly_price: number;
+    discount: number;
+    discount_preset_id?: ID | null;
+    discount_title?: string;
+    start_period: string;
+  },
+  actor: Actor,
+): ID {
+  assertPeriod(args.start_period);
+  let createdId: ID = "";
+  transact((db) => {
+    const legacy = db.enrollments.find((item) => item.id === args.enrollment_id);
+    if (!legacy) throw new Error("التسجيل القديم غير موجود");
+    if (legacy.billing_mode === "monthly") throw new Error("هذا التسجيل شهري بالفعل");
+    if (legacy.status !== "active") throw new Error("يمكن تحويل التسجيلات القديمة النشطة فقط");
+    if (![args.monthly_price, args.discount].every((value) => Number.isInteger(value) && value >= 0)) {
+      throw new Error("قيم التسجيل الشهرية غير صالحة");
+    }
+    if (args.discount > args.monthly_price) throw new Error("الخصم لا يمكن أن يتجاوز القسط الشهري");
+    const student = db.students.find((item) => item.id === legacy.student_id);
+    if (!student || student.status !== "active") throw new Error("لا يمكن تحويل تسجيل طالب غير نشط أو مؤرشف");
+    if (!db.classes.some((item) => item.id === legacy.class_id)) throw new Error("الصف غير موجود");
+
+    legacy.status = "withdrawn";
+    legacy.updated_at = new Date().toISOString();
+
+    const monthlyNet = args.monthly_price - args.discount;
+    const enrollment: Enrollment = {
+      ...baseFields(),
+      student_id: legacy.student_id,
+      class_id: legacy.class_id,
+      enrolled_at: new Date().toISOString(),
+      price_snapshot: args.monthly_price,
+      discount_snapshot: args.discount,
+      discount_reason: args.discount_title?.trim() ?? "",
+      billing_mode: "monthly",
+      billing_start_period: args.start_period,
+      billing_end_period: null,
+      monthly_price_snapshot: monthlyNet,
+      discount_preset_id: args.discount_preset_id ?? null,
+      discount_title_snapshot: args.discount_title?.trim() ?? "",
+      status: "active",
+    };
+    db.enrollments.push(enrollment);
+    createdId = enrollment.id;
+    const invoice: Invoice = {
+      ...baseFields(),
+      number: nextInvoiceNumber(db),
+      enrollment_id: enrollment.id,
+      student_id: enrollment.student_id,
+      total: 0,
+      status: "paid",
+      issued_at: new Date().toISOString(),
+    };
+    db.invoices.push(invoice);
+    const currentPeriod = today().slice(0, 7);
+    for (const period of periodRange(args.start_period, currentPeriod)) createMonthlyChargeInDb(db, enrollment, period);
+    recomputeInvoice(db, invoice.id);
+    audit(db, actor, "enrollments", enrollment.id, "transition-monthly", `تحويل التسجيل القديم ${legacy.id} إلى نظام شهري من ${args.start_period} دون تعديل الفاتورة التاريخية`);
+  });
+  return createdId;
+}
+
+/** Updates the price/discount snapshot used only by future monthly charges. Existing months remain immutable. */
+export function updateMonthlyEnrollmentTerms(
+  args: {
+    enrollment_id: ID;
+    monthly_price: number;
+    discount: number;
+    discount_preset_id?: ID | null;
+    discount_title?: string;
+  },
+  actor: Actor,
+): void {
+  transact((db) => {
+    const enrollment = db.enrollments.find((item) => item.id === args.enrollment_id);
+    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");
+    if (enrollment.status !== "active") throw new Error("لا يمكن تعديل شروط تسجيل شهري غير نشط");
+    if (![args.monthly_price, args.discount].every((value) => Number.isInteger(value) && value >= 0)) {
+      throw new Error("قيم التسجيل الشهرية غير صالحة");
+    }
+    if (args.discount > args.monthly_price) throw new Error("الخصم لا يمكن أن يتجاوز القسط الشهري");
+    enrollment.price_snapshot = args.monthly_price;
+    enrollment.discount_snapshot = args.discount;
+    enrollment.monthly_price_snapshot = args.monthly_price - args.discount;
+    enrollment.discount_preset_id = args.discount_preset_id ?? null;
+    enrollment.discount_title_snapshot = args.discount_title?.trim() ?? "";
+    enrollment.discount_reason = args.discount_title?.trim() ?? "";
+    enrollment.updated_at = new Date().toISOString();
+    audit(db, actor, "enrollments", enrollment.id, "update-monthly-terms", `تحديث شروط القسط الشهري للمستقبل إلى ${enrollment.monthly_price_snapshot / 100}`);
+  });
+}
+
 export function generateMonthlyStudentChargesInDb(db: DB, period: string): number {
   assertPeriod(period);
   let created = 0;
