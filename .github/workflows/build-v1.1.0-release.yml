@@ -1,0 +1,71 @@
+name: Build approved Academy Hub v1.1.0 release
+
+on:
+  push:
+    branches:
+      - academy-v1.1.0-upgrade
+    paths:
+      - ".github/workflows/build-v1.1.0-release.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout approved release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v1.1.0
+          fetch-depth: 1
+
+      - name: Verify release commit
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "1744728c45d3338792b54efcebdcdd4c83024adb"
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run full quality gate
+        run: npm run ci:verify
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build Windows installer
+        run: npm run desktop:dist
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Academy-Hub-Windows-v1.1.0
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0 >/dev/null 2>&1; then
+            gh release upload v1.1.0 release/*.exe release/*.blockmap release/latest.yml --clobber
+          else
+            gh release create v1.1.0 release/*.exe release/*.blockmap release/latest.yml --generate-notes --title "Academy Hub v1.1.0" --target 1744728c45d3338792b54efcebdcdd4c83024adb
+          fi
