@@ -55,5 +55,6 @@ export const SQLITE_INDEX_PLAN = [
   "payments(student_id, is_void, paid_at)",
   "expenses(is_void, date)",
   "payroll_items(period, status)",
+  "payroll_payments(employee_id, is_void, paid_at)",
   "audit_log(at, entity, action)",
 ] as const;
