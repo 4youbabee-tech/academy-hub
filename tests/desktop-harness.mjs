@@ -23,6 +23,7 @@ const collections = {
   payments: [],
   employees: [],
   payroll_items: [],
+  payroll_payments: [],
   advances: [],
   expenses: [],
   incomes: [],
@@ -31,7 +32,7 @@ const collections = {
 
 const now = new Date().toISOString();
 const snapshot = {
-  schema_version: 3,
+  schema_version: 4,
   settings: { institute_name: "اختبار Academy Hub", currency: "USD" },
   expense_categories: ["إيجار"],
   ...collections,
