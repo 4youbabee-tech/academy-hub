@@ -3,9 +3,8 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { insert } from "@/lib/db";
 import { dateStr, money, toMinor, today } from "@/lib/format";
-import { payrollItemCost, voidExpense } from "@/lib/finance";
+import { profitAndLoss, recordExpense, recordIncome, voidExpense, voidIncome } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
 
@@ -30,6 +29,8 @@ function ExpensesPage() {
   const [form, setForm] = useState({ category: "", amount: "", date: today(), note: "" });
   const [error, setError] = useState<string | null>(null);
   const [voidExpenseId, setVoidExpenseId] = useState<string | null>(null);
+  const [voidIncomeId, setVoidIncomeId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q);
 
@@ -46,7 +47,6 @@ function ExpensesPage() {
       if (!db) return [];
       const term = debouncedQ.trim().toLowerCase();
       return db.incomes
-        .filter((income) => !income.is_void)
         .filter((income) => !term || income.source.toLowerCase().includes(term) || income.note.toLowerCase().includes(term))
         .slice()
         .sort((a, b) => b.date.localeCompare(a.date));
@@ -60,39 +60,47 @@ function ExpensesPage() {
   if (!allowed("expenses.view")) return <Denied />;
   const currentDb = db;
   const canEdit = allowed("expenses.create");
+  const canVoid = allowed("expenses.void");
   const cur = currentDb.settings.currency;
   const expenseToVoid = voidExpenseId ? currentDb.expenses.find((e) => e.id === voidExpenseId) ?? null : null;
+  const incomeToVoid = voidIncomeId ? currentDb.incomes.find((e) => e.id === voidIncomeId) ?? null : null;
 
   function save() {
     const amount = toMinor(form.amount);
     if (amount <= 0) return setError("المبلغ غير صالح");
     if (!form.category.trim()) return setError(tab === "expense" ? "البند إلزامي" : "المصدر إلزامي");
 
-    if (tab === "expense") {
-      insert(
-        "expenses",
-        { category: form.category.trim(), amount, date: form.date, note: form.note, user_id: actor.id, is_void: false },
-        actor,
-        `مصروف ${form.category}`,
-      );
-    } else {
-      insert(
-        "incomes",
-        { source: form.category.trim(), amount, date: form.date, note: form.note, user_id: actor.id, is_void: false },
-        actor,
-        `مدخول ${form.category}`,
-      );
+    try {
+      if (tab === "expense") {
+        recordExpense({ category: form.category, amount, date: form.date, note: form.note }, actor);
+      } else {
+        recordIncome({ source: form.category, amount, date: form.date, note: form.note }, actor);
+      }
+      setOpen(false);
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
     }
-
-    setOpen(false);
-    setError(null);
   }
 
   function confirmVoidExpense() {
     if (!expenseToVoid) return;
     try {
-      voidExpense(expenseToVoid.id, actor);
+      voidExpense(expenseToVoid.id, actor, voidReason);
       setVoidExpenseId(null);
+      setVoidReason("");
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
+  }
+
+  function confirmVoidIncome() {
+    if (!incomeToVoid) return;
+    try {
+      voidIncome(incomeToVoid.id, actor, voidReason);
+      setVoidIncomeId(null);
+      setVoidReason("");
       setError(null);
     } catch (caught) {
       setError((caught as Error).message);
@@ -100,9 +108,7 @@ function ExpensesPage() {
   }
 
   const totalOperatingExpenses = currentDb.expenses.filter((e) => !e.is_void).reduce((s, e) => s + e.amount, 0);
-  const totalPaidPayroll = currentDb.payroll_items
-    .filter((p) => p.status === "paid")
-    .reduce((sum, item) => sum + payrollItemCost(item), 0);
+  const totalPaidPayroll = profitAndLoss(currentDb, "0001-01-01", "9999-12-31").payroll;
   const totalCompanyExpenses = totalOperatingExpenses + totalPaidPayroll;
   const totalInc = currentDb.incomes.filter((income) => !income.is_void).reduce((sum, income) => sum + income.amount, 0);
 
@@ -167,8 +173,8 @@ function ExpensesPage() {
                 <Td>{e.note || "—"}</Td>
                 <Td>{e.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</Td>
                 <Td>
-                  {!e.is_void && canEdit ? (
-                    <Button variant="ghost" onClick={() => setVoidExpenseId(e.id)}>
+                  {!e.is_void && canVoid ? (
+                    <Button variant="ghost" onClick={() => { setVoidExpenseId(e.id); setVoidReason(""); }}>
                       إلغاء
                     </Button>
                   ) : null}
@@ -192,19 +198,21 @@ function ExpensesPage() {
       ) : (
         <>
           <div className="mb-3 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
-            المداخيل هنا للعرض. سندات قبض الطلاب تُدار من صفحة الإيصالات والفواتير، ولا يتم إلغاؤها من هذه الشاشة. المداخيل الملغاة لا تدخل في الإجمالي ولا تظهر ضمن قائمة المداخيل الفعلية.
+            هذه المداخيل مستقلة عن سندات قبض الطلاب. أي إلغاء يبقى محفوظاً في السجل ولا يدخل في الإجمالي المالي.
           </div>
           {incomes.length === 0 ? (
             <Empty text="لا توجد مداخيل فعلية." />
           ) : (
             <>
-            <Table head={["المصدر", "المبلغ", "التاريخ", "ملاحظة"]}>
+            <Table head={["المصدر", "المبلغ", "التاريخ", "ملاحظة", "الحالة", ""]}>
               {incomePagination.rows.map((e) => (
-                <tr key={e.id}>
+                <tr key={e.id} className={e.is_void ? "opacity-60" : ""}>
                   <Td className="font-semibold">{e.source}</Td>
                   <Td className="tabular-nums">{money(e.amount, cur)}</Td>
                   <Td>{dateStr(e.date)}</Td>
                   <Td>{e.note || "—"}</Td>
+                  <Td>{e.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</Td>
+                  <Td>{!e.is_void && canVoid ? <Button variant="ghost" onClick={() => { setVoidIncomeId(e.id); setVoidReason(""); }}>إلغاء</Button> : null}</Td>
                 </tr>
               ))}
             </Table>
@@ -276,6 +284,7 @@ function ExpensesPage() {
             <p className="text-xs text-muted-foreground">
               سيبقى المصروف محفوظًا في السجل بحالة «ملغى»، لكنه لن يدخل في إجمالي المصاريف الفعلية.
             </p>
+            <Field label="سبب الإلغاء"><Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
             {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setVoidExpenseId(null)}>
@@ -284,6 +293,24 @@ function ExpensesPage() {
               <Button variant="danger" onClick={confirmVoidExpense}>
                 تأكيد الإلغاء
               </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!incomeToVoid} title="تأكيد إلغاء المدخول" onClose={() => setVoidIncomeId(null)}>
+        {incomeToVoid ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm">
+              <p className="font-bold">هل أنت متأكد من إلغاء هذا المدخول؟</p>
+              <p className="mt-2">المصدر: <b>{incomeToVoid.source}</b></p>
+              <p>المبلغ: <b>{money(incomeToVoid.amount, cur)}</b></p>
+            </div>
+            <Field label="سبب الإلغاء"><Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setVoidIncomeId(null)}>تراجع</Button>
+              <Button variant="danger" onClick={confirmVoidIncome}>تأكيد الإلغاء</Button>
             </div>
           </div>
         ) : null}

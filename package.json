@@ -1,6 +1,6 @@
 {
   "name": "academy-hub",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Academy Hub - offline institute management for Windows",
   "author": "Academy Hub",
   "private": true,
@@ -18,9 +18,11 @@
     "desktop:pack": "npm run desktop:build:web && electron-builder --dir",
     "desktop:dist": "npm run desktop:build:web && electron-builder --win nsis --x64 --publish never",
     "test:domain": "node --import tsx tests/domain-harness.ts",
-    "test:desktop": "node tests/desktop-harness.mjs",
+    "test:monthly-finance": "node --import tsx tests/monthly-financial-harness.ts",
+    "test:desktop": "node --check desktop/main.mjs && node --check desktop/preload.cjs && node tests/desktop-harness.mjs",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run build",
+    "ci:verify": "npm run typecheck && npm run lint && npm run test:domain && npm run test:monthly-finance && npm run test:desktop && npm run build",
     "format": "prettier --write ."
   },
   "dependencies": {

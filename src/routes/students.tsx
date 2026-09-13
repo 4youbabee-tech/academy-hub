@@ -28,6 +28,8 @@ const EMPTY = {
   phone: "",
   guardian_name: "",
   guardian_phone: "",
+  mother_name: "",
+  school_name: "",
   address: "",
   education_level: "" as Student["education_level"],
   status: "active" as Student["status"],
@@ -59,7 +61,9 @@ function StudentsPage() {
         term
           ? s.full_name.toLowerCase().includes(term) ||
             s.code.toLowerCase().includes(term) ||
-            s.phone.includes(term)
+            s.phone.includes(term) ||
+            s.mother_name.toLowerCase().includes(term) ||
+            s.school_name.toLowerCase().includes(term)
           : true,
       )
       .sort((a, b) => a.full_name.localeCompare(b.full_name, "ar"));
@@ -108,6 +112,8 @@ function StudentsPage() {
       phone: s.phone,
       guardian_name: s.guardian_name,
       guardian_phone: s.guardian_phone,
+      mother_name: s.mother_name ?? "",
+      school_name: s.school_name ?? "",
       address: s.address,
       education_level: s.education_level || "",
       status: s.status === "archived" ? "active" : s.status,
@@ -187,7 +193,7 @@ function StudentsPage() {
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
-        <Input placeholder="بحث بالاسم أو الرمز أو الهاتف" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input placeholder="بحث بالاسم أو الرمز أو الهاتف أو المدرسة" value={q} onChange={(e) => setQ(e.target.value)} />
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">الطلاب الحاليون</option>
           <option value="active">نشط</option>
@@ -305,6 +311,12 @@ function StudentsPage() {
           </Field>
           <Field label="هاتف ولي الأمر">
             <Input value={form.guardian_phone} onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })} />
+          </Field>
+          <Field label="اسم الأم">
+            <Input value={form.mother_name} onChange={(e) => setForm({ ...form, mother_name: e.target.value })} />
+          </Field>
+          <Field label="اسم المدرسة">
+            <Input value={form.school_name} onChange={(e) => setForm({ ...form, school_name: e.target.value })} placeholder="المدرسة الحالية أو السابقة" />
           </Field>
           <Field label="المستوى التعليمي">
             <Select

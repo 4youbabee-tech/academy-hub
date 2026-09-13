@@ -6,7 +6,7 @@ import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationContro
 import { insert, update } from "@/lib/db";
 import { dateStr, fromMinor, localMonthKey, money, toMinor, today } from "@/lib/format";
 import type { Employee, PayrollItem } from "@/lib/types";
-import { generatePayroll as createPayroll, payPayrollItem, recordAdvance } from "@/lib/payroll";
+import { generatePayroll as createPayroll, payrollPaid, payrollRemaining, recordAdvance, recordPayrollPayment, voidPayrollPayment } from "@/lib/payroll";
 import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
@@ -44,12 +44,16 @@ function EmployeesPage() {
   const { db, actor, allowed } = useApp();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ full_name: "", kind: "teacher" as Employee["kind"], job_title: "", phone: "", salary: "", hired_at: today() });
+  const [form, setForm] = useState({ full_name: "", kind: "teacher" as Employee["kind"], job_title: "", phone: "", salary: "", hired_at: today(), ended_at: "", active: true });
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState(monthNow());
   const [advFor, setAdvFor] = useState<string | null>(null);
   const [adv, setAdv] = useState({ amount: "", reason: "" });
   const [payFor, setPayFor] = useState<PayrollItem | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [paymentHistoryFor, setPaymentHistoryFor] = useState<PayrollItem | null>(null);
+  const [voidPayrollPaymentId, setVoidPayrollPaymentId] = useState<string | null>(null);
+  const [voidPayrollReason, setVoidPayrollReason] = useState("");
   const [employeeQ, setEmployeeQ] = useState("");
   const debouncedEmployeeQ = useDebouncedValue(employeeQ);
 
@@ -72,12 +76,17 @@ function EmployeesPage() {
   if (!allowed("payroll.view")) return <Denied />;
   const currentDb = db;
   const canEdit = allowed("payroll.create");
+  const canVoidPayroll = allowed("payroll.void");
   const cur = currentDb.settings.currency;
 
   function saveEmployee() {
     if (!form.full_name.trim()) return setError("الاسم إلزامي");
     const base_salary = toMinor(form.salary);
     if (base_salary < 0) return setError("الراتب الأساسي لا يمكن أن يكون سالبًا");
+    if (!form.hired_at) return setError("تاريخ بدء العمل إلزامي");
+    if (!form.active && !form.ended_at) return setError("تاريخ انتهاء العمل إلزامي عند إيقاف الموظف");
+    if (form.ended_at && form.ended_at < form.hired_at) return setError("تاريخ انتهاء العمل لا يمكن أن يسبق تاريخ البداية");
+    const endedAt = form.active ? null : form.ended_at;
     if (editId) {
       const outstandingAdvances = currentDb.advances
         .filter((a) => a.employee_id === editId && !a.settled)
@@ -85,11 +94,11 @@ function EmployeesPage() {
       if (base_salary < outstandingAdvances) {
         return setError(`لا يمكن جعل الراتب أقل من السلف غير المسددة (${money(outstandingAdvances, cur)})`);
       }
-      update("employees", editId, { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, base_salary }, actor, `تعديل موظف ${form.full_name}`);
+      update("employees", editId, { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, ended_at: endedAt, base_salary, active: form.active }, actor, `تعديل موظف ${form.full_name}`);
     } else {
       insert(
         "employees",
-        { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, base_salary, active: true },
+        { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, ended_at: null, base_salary, active: true },
         actor,
         `موظف جديد ${form.full_name}`,
       );
@@ -124,9 +133,24 @@ function EmployeesPage() {
 
   function confirmPay() {
     if (!payFor) return;
+    const amount = toMinor(payAmount);
+    if (amount <= 0) return setError("مبلغ الدفعة غير صالح");
     try {
-      payPayrollItem(payFor.id, actor);
+      recordPayrollPayment(payFor.id, amount, actor, "دفعة راتب");
       setPayFor(null);
+      setPayAmount("");
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
+  }
+
+  function confirmVoidPayrollPayment() {
+    if (!voidPayrollPaymentId) return;
+    try {
+      voidPayrollPayment(voidPayrollPaymentId, voidPayrollReason, actor);
+      setVoidPayrollPaymentId(null);
+      setVoidPayrollReason("");
       setError(null);
     } catch (caught) {
       setError((caught as Error).message);
@@ -202,7 +226,7 @@ function EmployeesPage() {
     (sum, item) => sum + payrollItemCost(item),
     0,
   );
-  const paidNet = items.filter((i) => i.status === "paid").reduce((s, i) => s + i.net, 0);
+  const paidNet = items.reduce((sum, item) => sum + payrollPaid(currentDb, item.id), 0);
   const advancesThisPeriod = currentDb.advances
     .filter((a) => a.date.slice(0, 7) === period)
     .reduce((sum, a) => sum + a.amount, 0);
@@ -218,7 +242,7 @@ function EmployeesPage() {
             <Button
               onClick={() => {
                 setEditId(null);
-                setForm({ full_name: "", kind: "teacher", job_title: "", phone: "", salary: "", hired_at: today() });
+                setForm({ full_name: "", kind: "teacher", job_title: "", phone: "", salary: "", hired_at: today(), ended_at: "", active: true });
                 setError(null);
                 setOpen(true);
               }}
@@ -241,7 +265,7 @@ function EmployeesPage() {
         <Empty text={employeeQ ? "لا يوجد موظفون مطابقون للبحث." : "لا يوجد موظفون."} />
       ) : (
         <>
-        <Table head={["الاسم", "النوع", "المسمى", "الهاتف", "الراتب", "الحالة", ""]}>
+        <Table head={["الاسم", "النوع", "المسمى", "الهاتف", "الراتب", "بداية العمل", "نهاية العمل", "الحالة", ""]}>
           {employeePagination.rows.map((e) => (
             <tr key={e.id}>
               <Td className="font-semibold">{e.full_name}</Td>
@@ -249,6 +273,8 @@ function EmployeesPage() {
               <Td>{e.job_title || "—"}</Td>
               <Td>{e.phone || "—"}</Td>
               <Td className="tabular-nums">{money(e.base_salary, cur)}</Td>
+              <Td>{dateStr(e.hired_at)}</Td>
+              <Td>{e.ended_at ? dateStr(e.ended_at) : "—"}</Td>
               <Td>{e.active ? <Badge tone="success">نشط</Badge> : <Badge>موقوف</Badge>}</Td>
               <Td className="whitespace-nowrap">
                 {canEdit ? (
@@ -257,7 +283,7 @@ function EmployeesPage() {
                       variant="ghost"
                       onClick={() => {
                         setEditId(e.id);
-                        setForm({ full_name: e.full_name, kind: e.kind, job_title: e.job_title, phone: e.phone, salary: fromMinor(e.base_salary), hired_at: e.hired_at });
+                        setForm({ full_name: e.full_name, kind: e.kind, job_title: e.job_title, phone: e.phone, salary: fromMinor(e.base_salary), hired_at: e.hired_at, ended_at: e.ended_at ?? "", active: e.active });
                         setOpen(true);
                       }}
                     >
@@ -272,9 +298,6 @@ function EmployeesPage() {
                       }}
                     >
                       سلفة
-                    </Button>
-                    <Button variant="ghost" onClick={() => update("employees", e.id, { active: !e.active }, actor, "تغيير حالة موظف")}>
-                      {e.active ? "إيقاف" : "تفعيل"}
                     </Button>
                   </>
                 ) : null}
@@ -314,22 +337,25 @@ function EmployeesPage() {
       {items.length === 0 ? (
         <Empty text="لا يوجد كشف لهذه الفترة." />
       ) : (
-        <Table head={["الموظف", "الأساسي", "خصم السلف", "الصافي", "الحالة", "تاريخ الدفع", ""]}>
+        <Table head={["الموظف", "الأساسي", "خصم السلف", "الصافي", "المدفوع", "المتبقي", "الحالة", "تاريخ الإكمال", ""]}>
           {payrollPagination.rows.map((i) => (
             <tr key={i.id}>
               <Td>{currentDb.employees.find((e) => e.id === i.employee_id)?.full_name ?? "—"}</Td>
               <Td className="tabular-nums">{money(i.base_snapshot, cur)}</Td>
               <Td className="tabular-nums">{money(i.advance_deducted, cur)}</Td>
               <Td className="tabular-nums font-semibold">{money(i.net, cur)}</Td>
-              <Td>{i.status === "paid" ? <Badge tone="success">مدفوع</Badge> : <Badge tone="warning">مسودة</Badge>}</Td>
+              <Td className="tabular-nums text-emerald-700">{money(payrollPaid(currentDb, i.id), cur)}</Td>
+              <Td className={payrollRemaining(currentDb, i.id) > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(payrollRemaining(currentDb, i.id), cur)}</Td>
+              <Td>{i.status === "paid" ? <Badge tone="success">مدفوع</Badge> : i.status === "partial" ? <Badge tone="warning">جزئي</Badge> : <Badge tone="muted">غير مدفوع</Badge>}</Td>
               <Td>{i.paid_at ? dateStr(i.paid_at) : "—"}</Td>
               <Td>
                 <div className="flex flex-wrap gap-1">
                   {i.status !== "paid" && canEdit ? (
-                    <Button variant="secondary" onClick={() => { setPayFor(i); setError(null); }}>
+                    <Button variant="secondary" onClick={() => { setPayFor(i); setPayAmount(fromMinor(payrollRemaining(currentDb, i.id))); setError(null); }}>
                       دفع
                     </Button>
                   ) : null}
+                  <Button variant="ghost" onClick={() => { setPaymentHistoryFor(i); setError(null); }}>الدفعات</Button>
                   {i.status === "paid" ? (
                     <Button variant="ghost" onClick={() => printSalaryReceipt(i)}>
                       🖨️ طباعة سند
@@ -376,6 +402,19 @@ function EmployeesPage() {
             <Field label="الراتب الأساسي">
               <Input type="number" min="0" step="0.01" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
             </Field>
+            <Field label="تاريخ بدء العمل">
+              <Input type="date" value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
+            </Field>
+            <Field label="الحالة">
+              <Select value={form.active ? "active" : "inactive"} onChange={(e) => setForm({ ...form, active: e.target.value === "active", ended_at: e.target.value === "active" ? "" : form.ended_at })}>
+                <option value="active">نشط</option><option value="inactive">منتهي / موقوف</option>
+              </Select>
+            </Field>
+            {!form.active ? (
+              <Field label="تاريخ انتهاء العمل">
+                <Input type="date" value={form.ended_at} onChange={(e) => setForm({ ...form, ended_at: e.target.value })} />
+              </Field>
+            ) : null}
           </div>
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
@@ -420,7 +459,38 @@ function EmployeesPage() {
         </div>
       </Modal>
 
-      <Modal open={!!payFor} title="تأكيد دفع الراتب" onClose={() => { setPayFor(null); setError(null); }}>
+      <Modal open={!!paymentHistoryFor} title="دفعات الراتب" onClose={() => { setPaymentHistoryFor(null); setError(null); }} wide>
+        {paymentHistoryFor ? (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted p-3 text-sm">
+              <b>{currentDb.employees.find((item) => item.id === paymentHistoryFor.employee_id)?.full_name ?? "—"}</b> — {paymentHistoryFor.period}
+            </div>
+            {currentDb.payroll_payments.filter((item) => item.payroll_item_id === paymentHistoryFor.id).length ? (
+              <Table head={["التاريخ", "المبلغ", "ملاحظة", "الحالة", ""]}>
+                {currentDb.payroll_payments.filter((item) => item.payroll_item_id === paymentHistoryFor.id).sort((a, b) => b.paid_at.localeCompare(a.paid_at)).map((payment) => (
+                  <tr key={payment.id} className={payment.is_void ? "opacity-60" : ""}>
+                    <Td>{dateStr(payment.paid_at)}</Td><Td className="tabular-nums">{money(payment.amount, cur)}</Td><Td>{payment.note || "—"}</Td>
+                    <Td>{payment.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
+                    <Td>{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</Td>
+                  </tr>
+                ))}
+              </Table>
+            ) : <Empty text="لا توجد دفعات راتب مسجلة بعد." />}
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!voidPayrollPaymentId} title="إلغاء دفعة راتب" onClose={() => setVoidPayrollPaymentId(null)}>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-muted p-3 text-sm">الإلغاء لا يحذف الدفعة؛ تبقى محفوظة بالسجل ويُعاد احتساب الرصيد تلقائياً.</p>
+          <Field label="سبب الإلغاء"><Input value={voidPayrollReason} onChange={(e) => setVoidPayrollReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
+          {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setVoidPayrollPaymentId(null)}>تراجع</Button><Button variant="danger" onClick={confirmVoidPayrollPayment}>تأكيد الإلغاء</Button></div>
+        </div>
+      </Modal>
+
+      <Modal open={!!payFor} title="دفع الراتب" onClose={() => { setPayFor(null); setError(null); }}>
         {payFor ? (
           <div className="space-y-4">
             <div className="rounded-xl border bg-muted/20 p-4 text-sm">
@@ -430,12 +500,17 @@ function EmployeesPage() {
               <p><b>الإضافات:</b> {money(payFor.bonus, cur)}</p>
               <p><b>الحسميات:</b> {money(payFor.deduction, cur)}</p>
               <p><b>السلف:</b> {money(payFor.advance_deducted, cur)}</p>
-              <p className="mt-2 text-base"><b>الصافي المدفوع:</b> {money(payFor.net, cur)}</p>
+              <p className="mt-2"><b>المدفوع سابقاً:</b> {money(payrollPaid(currentDb, payFor.id), cur)}</p>
+              <p><b>المتبقي:</b> {money(payrollRemaining(currentDb, payFor.id), cur)}</p>
             </div>
+            <Field label={`مبلغ الدفعة (${cur})`}>
+              <Input type="number" min="0" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+            </Field>
+            <p className="text-xs text-muted-foreground">يمكن دفع كامل المتبقي أو أي جزء منه. سيبقى الرصيد ظاهراً إلى أن يكتمل الراتب.</p>
             {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setPayFor(null)}>تراجع</Button>
-              <Button onClick={confirmPay}>تأكيد الدفع</Button>
+              <Button onClick={confirmPay}>تسجيل الدفعة</Button>
             </div>
           </div>
         ) : null}

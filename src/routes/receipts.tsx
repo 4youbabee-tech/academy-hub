@@ -105,7 +105,7 @@ function ReceiptsPage() {
   if (!allowed("finance.view")) return <Denied />;
   const currentDb = db;
   const canPay = allowed("finance.pay") || allowed("finance.create");
-  const canVoid = allowed("finance.void") || canPay;
+  const canVoid = allowed("finance.void");
   const cur = currentDb.settings.currency;
 
   const activeInvoiceIds = new Set(currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").map((invoice) => invoice.id));
@@ -195,7 +195,7 @@ function ReceiptsPage() {
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           className="min-w-[220px] flex-1"
-          placeholder={section === "invoices" ? "بحث بالطالب أو رقم الفاتورة أو الدورة..." : "بحث برقم السند أو اسم الطالب..."}
+          placeholder={section === "invoices" ? "بحث بالطالب أو رقم الفاتورة أو العام الدراسي..." : "بحث برقم السند أو اسم الطالب..."}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -220,7 +220,7 @@ function ReceiptsPage() {
           <Empty text="لا توجد فواتير مطابقة." />
         ) : (
           <>
-          <Table head={["الفاتورة", "الطالب", "الدورة / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
+          <Table head={["الفاتورة", "الطالب", "العام الدراسي / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
             {invoicePagination.rows.map(({ inv, student, course, klass, balance, paid }) => (
               <tr key={inv.id}>
                 <Td className="font-semibold">{inv.number}</Td>
@@ -269,7 +269,7 @@ function ReceiptsPage() {
         <Empty text="لا توجد سندات قبض مطابقة." />
       ) : (
         <>
-        <Table head={["رقم السند", "الطالب", "البيان / الملاحظة", "الدورة / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
+        <Table head={["رقم السند", "الطالب", "البيان / الملاحظة", "العام الدراسي / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
           {receiptPagination.rows.map((p) => {
             const student = currentDb.students.find((s) => s.id === p.student_id);
             const invoice = currentDb.invoices.find((i) => i.id === p.invoice_id);
@@ -344,7 +344,7 @@ function ReceiptsPage() {
           {currentInvoice ? (
             <div className="rounded-xl border bg-muted/20 p-3 text-sm">
               <p><b>الطالب:</b> {currentStudent?.full_name || "—"}</p>
-              <p><b>الدورة / الصف:</b> {currentCourse?.name || "—"}{currentClass ? ` — ${currentClass.name}` : ""}</p>
+              <p><b>العام الدراسي / الصف:</b> {currentCourse?.name || "—"}{currentClass ? ` — ${currentClass.name}` : ""}</p>
               <p><b>إجمالي المستحق:</b> {money(currentInvoice.total, cur)}</p>
               <p><b>المتبقي:</b> {money(invoiceRemaining, cur)}</p>
             </div>

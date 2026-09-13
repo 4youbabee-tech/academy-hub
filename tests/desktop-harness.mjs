@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,6 +24,7 @@ const collections = {
   payments: [],
   employees: [],
   payroll_items: [],
+  payroll_payments: [],
   advances: [],
   expenses: [],
   incomes: [],
@@ -31,10 +33,14 @@ const collections = {
 
 const now = new Date().toISOString();
 const snapshot = {
-  schema_version: 3,
+  schema_version: 4,
   settings: { institute_name: "اختبار Academy Hub", currency: "USD" },
   expense_categories: ["إيجار"],
   ...collections,
+  users: [{
+    id: "owner-1", created_at: now, updated_at: now, branch_id: "main", sync_status: "local",
+    username: "owner", full_name: "مالك الاختبار", password_hash: "x", role: "owner", is_active: true,
+  }],
   students: [
     {
       id: "student-1",
@@ -62,6 +68,51 @@ try {
   assert.equal(database.loadSnapshot().students.length, 0);
   await database.restoreFrom(backupPath);
   assert.equal(database.loadSnapshot().students.length, 1);
+
+  const invalidBackupPath = path.join(temp, "invalid-relations.sqlite");
+  await copyFile(backupPath, invalidBackupPath);
+  const invalidDb = new DatabaseSync(invalidBackupPath);
+  try {
+    const row = invalidDb.prepare("SELECT data_json FROM entities WHERE collection = 'students' AND id = 'student-1'").get();
+    const student = JSON.parse(row.data_json);
+    invalidDb.prepare("DELETE FROM entities WHERE collection = 'students' AND id = ?").run(student.id);
+    invalidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES ('invoices', 'invoice-broken', 0, ?)").run(JSON.stringify({
+      id: "invoice-broken", enrollment_id: "missing-enrollment", student_id: "student-1", total: 100, status: "open", issued_at: now,
+    }));
+  } finally {
+    invalidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(invalidBackupPath), /علاقة فاتورة|علاقة تسجيل|مالكاً نشطاً/);
+  assert.equal(database.loadSnapshot().students.length, 1, "failed restore must preserve current database");
+
+  const overpaidBackupPath = path.join(temp, "invalid-overpayment.sqlite");
+  await copyFile(backupPath, overpaidBackupPath);
+  const overpaidDb = new DatabaseSync(overpaidBackupPath);
+  try {
+    const put = overpaidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES (?, ?, ?, ?)");
+    put.run("classes", "class-overpay", 0, JSON.stringify({ id: "class-overpay", course_id: "course-x", name: "صف", capacity: 10 }));
+    put.run("enrollments", "enroll-overpay", 0, JSON.stringify({ id: "enroll-overpay", student_id: "student-1", class_id: "class-overpay", price_snapshot: 1000, discount_snapshot: 0 }));
+    put.run("invoices", "invoice-overpay", 0, JSON.stringify({ id: "invoice-overpay", enrollment_id: "enroll-overpay", student_id: "student-1", total: 1000, status: "open", issued_at: now }));
+    put.run("payments", "payment-overpay", 0, JSON.stringify({ id: "payment-overpay", invoice_id: "invoice-overpay", installment_id: null, student_id: "student-1", receipt_no: "R-OVER", amount: 1001, paid_at: now, is_void: false }));
+  } finally {
+    overpaidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(overpaidBackupPath), /يتجاوز قيمة الفاتورة/);
+  assert.equal(database.loadSnapshot().students.length, 1, "overpaid restore rejection must preserve current database");
+
+  const payrollOverpaidBackupPath = path.join(temp, "invalid-payroll-overpayment.sqlite");
+  await copyFile(backupPath, payrollOverpaidBackupPath);
+  const payrollOverpaidDb = new DatabaseSync(payrollOverpaidBackupPath);
+  try {
+    const put = payrollOverpaidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES (?, ?, ?, ?)");
+    put.run("employees", "employee-overpay", 0, JSON.stringify({ id: "employee-overpay", full_name: "موظف", base_salary: 1000 }));
+    put.run("payroll_items", "payroll-overpay", 0, JSON.stringify({ id: "payroll-overpay", employee_id: "employee-overpay", period: "2026-09", base_snapshot: 1000, bonus: 0, deduction: 0, advance_deducted: 0, net: 1000, status: "partial", paid_at: null }));
+    put.run("payroll_payments", "payroll-payment-overpay", 0, JSON.stringify({ id: "payroll-payment-overpay", payroll_item_id: "payroll-overpay", employee_id: "employee-overpay", amount: 1001, paid_at: now, is_void: false }));
+  } finally {
+    payrollOverpaidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(payrollOverpaidBackupPath), /يتجاوز صافي الراتب/);
+  assert.equal(database.loadSnapshot().students.length, 1, "payroll overpayment restore rejection must preserve current database");
 
   const largeStudentSet = Array.from({ length: 2_500 }, (_, index) => ({
     ...snapshot.students[0],

@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { hashPassword, loadDb, snapshot, subscribe, transact, audit, type Actor } from "./db";
+import { flushDb, hashPassword, isLegacyPasswordHash, loadDb, snapshot, subscribe, transact, audit, verifyPassword, type Actor } from "./db";
 import type { DB, User } from "./types";
 import { can } from "./permissions";
+import { runMonthlyGeneration } from "./monthly";
 
 const SESSION_KEY = "institute-session-user";
 
@@ -34,23 +35,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const desktopApp = window.academyDesktop?.app;
+    if (!desktopApp) return;
+    return desktopApp.onPrepareClose(() => {
+      void flushDb()
+        .then(() => desktopApp.confirmClose({ ok: true }))
+        .catch((error: unknown) => desktopApp.confirmClose({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+    });
+  }, []);
+
   const user = useMemo(
     () => db?.users.find((u) => u.id === userId && u.is_active) ?? null,
     [db, userId],
   );
 
+  useEffect(() => {
+    if (!userId) return;
+    const runCycle = () => {
+      const current = snapshot();
+      const activeUser = current?.users.find((item) => item.id === userId && item.is_active);
+      if (!activeUser) return;
+      try {
+        runMonthlyGeneration(undefined, { id: activeUser.id, name: activeUser.full_name });
+      } catch (error) {
+        console.error("تعذر تشغيل الدورة الشهرية التلقائية", error);
+      }
+    };
+    runCycle();
+    const interval = window.setInterval(runCycle, 60 * 60 * 1000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") runCycle();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [userId]);
+
   const login = useCallback(async (username: string, password: string) => {
     const current = snapshot();
     if (!current) return "قاعدة البيانات غير جاهزة";
-    const hash = await hashPassword(password);
-    const found = current.users.find(
-      (u) => u.username.toLowerCase() === username.trim().toLowerCase() && u.password_hash === hash,
-    );
-    if (!found) return "اسم المستخدم أو كلمة المرور غير صحيحة";
+    const found = current.users.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+    if (!found || !(await verifyPassword(password, found.password_hash))) return "اسم المستخدم أو كلمة المرور غير صحيحة";
     if (!found.is_active) return "هذا الحساب معطّل";
+    const upgradedHash = isLegacyPasswordHash(found.password_hash) ? await hashPassword(password) : null;
     sessionStorage.setItem(SESSION_KEY, found.id);
     setUserId(found.id);
-    transact((d) => audit(d, { id: found.id, name: found.full_name }, "auth", found.id, "login", "تسجيل دخول"));
+    transact((d) => {
+      const stored = d.users.find((item) => item.id === found.id);
+      if (stored && upgradedHash) {
+        stored.password_hash = upgradedHash;
+        stored.updated_at = new Date().toISOString();
+      }
+      audit(d, { id: found.id, name: found.full_name }, "auth", found.id, "login", upgradedHash ? "تسجيل دخول وترقية حماية كلمة المرور" : "تسجيل دخول");
+    });
     return null;
   }, []);
 

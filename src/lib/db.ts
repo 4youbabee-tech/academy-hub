@@ -11,7 +11,7 @@ import {
 const DB_NAME = "institute-db";
 const STORE = "kv";
 const KEY = "main";
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const storage = createIndexedDbStorage<DB>({ databaseName: DB_NAME, storeName: STORE, key: KEY });
 
@@ -22,9 +22,59 @@ export function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export async function hashPassword(pw: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`inst::${pw}`));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+const PBKDF2_ITERATIONS = 210_000;
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(value: string): Uint8Array {
+  if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) throw new Error("صيغة كلمة المرور المخزنة غير صالحة");
+  const result = new Uint8Array(value.length / 2);
+  for (let index = 0; index < result.length; index += 1) result[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  return result;
+}
+
+async function legacyPasswordHash(password: string): Promise<string> {
+  const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`inst::${password}`));
+  return bytesToHex(new Uint8Array(buffer));
+}
+
+async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<string> {
+  const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const saltBuffer = Uint8Array.from(salt).buffer;
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBuffer, iterations },
+    material,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+export function isLegacyPasswordHash(value: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(value);
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const derived = await derivePassword(password, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${derived}`;
+}
+
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (isLegacyPasswordHash(storedHash)) return (await legacyPasswordHash(password)) === storedHash.toLowerCase();
+  const parts = storedHash.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iterations = Number(parts[1]);
+  if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) return false;
+  try {
+    const salt = hexToBytes(parts[2] ?? "");
+    const expected = parts[3] ?? "";
+    if (salt.length < 16 || !/^[0-9a-f]{64}$/i.test(expected)) return false;
+    return (await derivePassword(password, salt, iterations)) === expected.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export function baseFields(): Base {
@@ -53,6 +103,8 @@ export function emptyDb(): DB {
       receipt_show_guardian: true,
       receipt_show_notes: true,
       receipt_footer_text: "شكراً لثقتكم بنا",
+      discount_presets: [],
+      monthly_generation_last_period: null,
     },
     expense_categories: ["إيجار", "كهرباء", "قرطاسية", "صيانة", "تسويق", "أخرى"],
     users: [],
@@ -65,6 +117,7 @@ export function emptyDb(): DB {
     payments: [],
     employees: [],
     payroll_items: [],
+    payroll_payments: [],
     advances: [],
     expenses: [],
     incomes: [],
@@ -104,14 +157,51 @@ function normalizeDb(value: unknown): DB {
     ...settingsRest
   } = rawSettings;
 
+  const source = rest as Partial<DB>;
+  const array = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
+
   return {
     ...base,
-    ...(rest as Partial<DB>),
+    ...source,
     schema_version: SCHEMA_VERSION,
     settings: {
       ...base.settings,
       ...(settingsRest as Partial<Settings>),
+      discount_presets: Array.isArray(settingsRest["discount_presets"])
+        ? settingsRest["discount_presets"] as Settings["discount_presets"]
+        : [],
     },
+    students: array<DB["students"][number]>(source.students).map((student) => ({
+      ...student,
+      mother_name: typeof student.mother_name === "string" ? student.mother_name : "",
+      school_name: typeof student.school_name === "string" ? student.school_name : "",
+    })),
+    enrollments: array<DB["enrollments"][number]>(source.enrollments).map((enrollment) => ({
+      ...enrollment,
+      billing_mode: enrollment.billing_mode ?? "legacy",
+      billing_start_period: enrollment.billing_start_period ?? null,
+      billing_end_period: enrollment.billing_end_period ?? null,
+      monthly_price_snapshot: enrollment.monthly_price_snapshot ?? 0,
+      discount_preset_id: enrollment.discount_preset_id ?? null,
+      discount_title_snapshot: enrollment.discount_title_snapshot ?? enrollment.discount_reason ?? "",
+    })),
+    installments: array<DB["installments"][number]>(source.installments).map((installment) => ({
+      ...installment,
+      period: installment.period ?? null,
+      is_void: installment.is_void ?? false,
+      void_reason: installment.void_reason ?? "",
+      voided_at: installment.voided_at ?? null,
+    })),
+    employees: array<DB["employees"][number]>(source.employees).map((employee) => ({
+      ...employee,
+      ended_at: employee.ended_at ?? null,
+    })),
+    advances: array<DB["advances"][number]>(source.advances).map((advance) => ({
+      ...advance,
+      allocated_payroll_id: advance.allocated_payroll_id ?? null,
+      settled_at: advance.settled_at ?? null,
+    })),
+    payroll_payments: array<DB["payroll_payments"][number]>(source.payroll_payments),
   };
 }
 
@@ -208,6 +298,24 @@ export function replaceDb(next: DB): void {
 
 /* ---------------- audit + generic CRUD ---------------- */
 
+const PROTECTED_FINANCIAL_COLLECTIONS = new Set<CollectionKey>([
+  "enrollments",
+  "invoices",
+  "installments",
+  "payments",
+  "payroll_items",
+  "payroll_payments",
+  "advances",
+  "expenses",
+  "incomes",
+]);
+
+function assertGenericFinancialMutationAllowed(key: CollectionKey): void {
+  if (PROTECTED_FINANCIAL_COLLECTIONS.has(key)) {
+    throw new Error("السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة. استخدم العملية المالية المخصصة مع سجل التدقيق.");
+  }
+}
+
 export interface Actor {
   id: ID | null;
   name: string;
@@ -240,6 +348,7 @@ export function insert<K extends CollectionKey>(
   actor: Actor,
   detail: string,
 ): ID {
+  assertGenericFinancialMutationAllowed(key);
   const record = { ...baseFields(), ...data } as DB[K][number];
   transact((db) => {
     if (key === "users") assertUserCreate(db, record as User, actor);
@@ -256,6 +365,7 @@ export function update<K extends CollectionKey>(
   actor: Actor,
   detail: string,
 ): void {
+  assertGenericFinancialMutationAllowed(key);
   transact((db) => {
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);
@@ -275,6 +385,7 @@ export function update<K extends CollectionKey>(
 }
 
 export function remove<K extends CollectionKey>(key: K, id: ID, actor: Actor, detail: string): void {
+  assertGenericFinancialMutationAllowed(key);
   transact((db) => {
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);

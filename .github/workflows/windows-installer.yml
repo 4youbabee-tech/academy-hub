@@ -27,8 +27,11 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Verify desktop data and license layer
-        run: npm run test:desktop
+      - name: Run full quality gate
+        run: npm run ci:verify
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Build Windows installer
         run: npm run desktop:dist

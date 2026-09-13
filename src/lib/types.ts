@@ -12,6 +12,13 @@ export interface Base {
 
 export type PermissionKey = string; // "entity.action"
 
+export interface DiscountPreset {
+  id: ID;
+  title: string;
+  amount: number;
+  active: boolean;
+}
+
 export interface Settings {
   institute_name: string;
   logo_data_url: string | null;
@@ -30,6 +37,9 @@ export interface Settings {
   receipt_show_guardian: boolean;
   receipt_show_notes: boolean;
   receipt_footer_text: string;
+  discount_presets: DiscountPreset[];
+  /** Last period processed by the automatic monthly engine. Null means activate from the current month only. */
+  monthly_generation_last_period: string | null;
 }
 
 export interface User extends Base {
@@ -51,6 +61,8 @@ export interface Student extends Base {
   phone: string;
   guardian_name: string;
   guardian_phone: string;
+  mother_name: string;
+  school_name: string;
   address: string;
   education_level: "ابتدائي" | "متوسط" | "ثانوي" | "جامعي" | "" | null;
   status: "active" | "inactive" | "graduated" | "archived";
@@ -86,6 +98,15 @@ export interface Enrollment extends Base {
   price_snapshot: number;
   discount_snapshot: number;
   discount_reason: string;
+  /** Legacy registrations keep their historical one-time invoice unchanged. */
+  billing_mode?: "legacy" | "monthly";
+  /** First and optional final billed period in YYYY-MM format. */
+  billing_start_period?: string | null;
+  billing_end_period?: string | null;
+  /** Net recurring monthly charge after the snapshotted discount. */
+  monthly_price_snapshot?: number;
+  discount_preset_id?: ID | null;
+  discount_title_snapshot?: string;
   status: "active" | "completed" | "withdrawn" | "cancelled";
 }
 
@@ -103,10 +124,15 @@ export interface Installment extends Base {
   due_date: string;
   amount: number;
   status: "due" | "paid" | "partial";
-  /** "registration" = رسوم التسجيل، "installment" = قسط عادي */
-  kind?: "registration" | "installment";
+  /** registration = رسوم التسجيل، installment = قسط قديم، monthly = استحقاق شهري. */
+  kind?: "registration" | "installment" | "monthly";
   /** 0 لرسوم التسجيل، 1..n لأرقام الأقساط */
   seq?: number;
+  /** Billing period for monthly charges (YYYY-MM). */
+  period?: string | null;
+  is_void?: boolean;
+  void_reason?: string;
+  voided_at?: string | null;
 }
 
 export interface Payment extends Base {
@@ -134,6 +160,7 @@ export interface Employee extends Base {
   job_title: string;
   phone: string;
   hired_at: string;
+  ended_at?: string | null;
   base_salary: number;
   active: boolean;
 }
@@ -149,7 +176,7 @@ export interface PayrollItem extends Base {
   advance_ids?: ID[];
   net: number;
   paid_at: string | null;
-  status: "draft" | "paid";
+  status: "draft" | "partial" | "paid";
 }
 
 export interface Advance extends Base {
@@ -158,6 +185,21 @@ export interface Advance extends Base {
   date: string;
   reason: string;
   settled: boolean;
+  /** Reserved for exactly one payroll item as soon as it is allocated. */
+  allocated_payroll_id?: ID | null;
+  settled_at?: string | null;
+}
+
+export interface PayrollPayment extends Base {
+  payroll_item_id: ID;
+  employee_id: ID;
+  amount: number;
+  paid_at: string;
+  is_void: boolean;
+  void_reason: string;
+  voided_at?: string | null;
+  user_id: ID | null;
+  note?: string;
 }
 
 export interface Expense extends Base {
@@ -202,6 +244,7 @@ export interface DB {
   payments: Payment[];
   employees: Employee[];
   payroll_items: PayrollItem[];
+  payroll_payments: PayrollPayment[];
   advances: Advance[];
   expenses: Expense[];
   incomes: Income[];

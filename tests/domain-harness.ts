@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { baseFields, emptyDb, insert, remove, replaceDb, snapshot, update } from "../src/lib/db";
+import { baseFields, emptyDb, hashPassword, insert, isLegacyPasswordHash, remove, replaceDb, snapshot, update, verifyPassword } from "../src/lib/db";
 import {
   cancelEnrollmentWithInvoice,
   createEnrollmentWithInvoice,
@@ -7,9 +7,12 @@ import {
   invoiceFinancials,
   payrollItemCost,
   profitAndLoss,
+  recordExpense,
+  recordIncome,
   recordPayment,
   studentBalance,
   voidExpense,
+  voidIncome,
   voidPayment,
 } from "../src/lib/finance";
 import { generatePayroll, payPayrollItem, recordAdvance } from "../src/lib/payroll";
@@ -17,6 +20,18 @@ import { localDateKey } from "../src/lib/format";
 
 process.env.TZ = "Asia/Beirut";
 assert.equal(localDateKey("2026-08-22T21:30:00.000Z"), "2026-08-23", "local accounting date");
+
+const newHashA = await hashPassword("secret-123");
+const newHashB = await hashPassword("secret-123");
+assert.notEqual(newHashA, newHashB, "salted hashes must differ");
+assert.equal(isLegacyPasswordHash(newHashA), false);
+assert.equal(await verifyPassword("secret-123", newHashA), true);
+assert.equal(await verifyPassword("wrong", newHashA), false);
+const legacyBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("inst::legacy-pass"));
+const legacyHash = Array.from(new Uint8Array(legacyBuffer)).map((value) => value.toString(16).padStart(2, "0")).join("");
+assert.equal(isLegacyPasswordHash(legacyHash), true);
+assert.equal(await verifyPassword("legacy-pass", legacyHash), true);
+assert.equal(await verifyPassword("wrong", legacyHash), false);
 
 const ownerActor = { id: "owner-1", name: "مالك" };
 const directorActor = { id: "director-1", name: "مدير" };
@@ -34,7 +49,7 @@ db.users.push(
 );
 db.students.push({
   ...baseFields(), id: "student-1", code: "ST-1", full_name: "طالب اختبار", birth_date: null,
-  gender: "", phone: "", guardian_name: "", guardian_phone: "", address: "",
+  gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "",
   education_level: null, status: "active", archived_at: null, notes: "",
 });
 db.courses.push(
@@ -47,7 +62,7 @@ db.classes.push({
 });
 db.employees.push({
   ...baseFields(), id: "employee-1", full_name: "موظف", kind: "staff", job_title: "إداري",
-  phone: "", hired_at: "2026-01-01", base_salary: 50_000, active: true,
+  phone: "", hired_at: "2026-01-01", ended_at: null, base_salary: 50_000, active: true,
 });
 replaceDb(db);
 
@@ -82,6 +97,14 @@ assert.throws(
   () => recordPayment({ invoice_id: invoice.id, amount: 20_001, method: "cash" }, ownerActor),
   /يتجاوز رصيد الفاتورة/,
 );
+assert.throws(
+  () => remove("payments", payment20, ownerActor, "حذف مباشر"),
+  /السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة/,
+);
+assert.throws(
+  () => update("invoices", invoice.id, { total: 1 }, ownerActor, "تعديل مباشر"),
+  /السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة/,
+);
 
 assert.throws(
   () => update("students", "student-1", { status: "archived" }, ownerActor, "أرشفة"),
@@ -96,7 +119,8 @@ voidPayment(payment100, "اختبار", ownerActor);
 current = snapshot()!;
 assert.equal(invoiceBalance(current, invoice.id), 30_000);
 assert.deepEqual(studentBalance(current, "student-1"), { billed: 32_000, paid: 2_000, due: 30_000 });
-assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").tuition, 2_000);
+const paymentAccountingDate = localDateKey(current.payments.find((payment) => payment.id === payment20)!.paid_at);
+assert.equal(profitAndLoss(current, paymentAccountingDate, paymentAccountingDate).tuition, 2_000);
 
 voidPayment(payment20, "إلغاء التسجيل", ownerActor);
 cancelEnrollmentWithInvoice(current.enrollments[0]!.id, ownerActor);
@@ -135,14 +159,23 @@ payPayrollItem(payroll.id, ownerActor);
 current = snapshot()!;
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة آب")!.settled, true);
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة أيلول")!.settled, false);
-assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").payroll, 50_000);
+const payrollAccountingDate = localDateKey(current.payroll_items.find((item) => item.id === payroll.id)!.paid_at!);
+assert.equal(profitAndLoss(current, "2026-08-01", payrollAccountingDate).payroll, 50_000);
 
-const expenseId = insert("expenses", {
-  category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
-}, ownerActor, "مصروف");
-voidExpense(expenseId, ownerActor);
+assert.throws(() => insert("expenses", {
+  category: "ممنوع", amount: 100, date: "2026-08-10", note: "", user_id: ownerActor.id, is_void: false,
+}, ownerActor, "إنشاء مباشر"), /لا تُنشأ أو تُعدّل أو تُحذف مباشرة/);
+const expenseId = recordExpense({ category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار" }, ownerActor);
+assert.throws(() => voidExpense(expenseId, ownerActor, ""), /سبب الإلغاء إلزامي/);
+voidExpense(expenseId, ownerActor, "تكرار إدخال");
 current = snapshot()!;
 assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").expenses, 0);
+
+const incomeId = recordIncome({ source: "دخل تجريبي", amount: 7_000, date: "2026-08-10", note: "اختبار" }, ownerActor);
+assert.throws(() => voidIncome(incomeId, ownerActor, ""), /سبب الإلغاء إلزامي/);
+voidIncome(incomeId, ownerActor, "قيد خاطئ");
+current = snapshot()!;
+assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").otherIncome, 0);
 
 console.log("Academy Hub domain scenarios: PASS");
 process.exit(0);
