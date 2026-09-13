@@ -6,7 +6,7 @@ import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationContro
 import { insert, update } from "@/lib/db";
 import { dateStr, fromMinor, localMonthKey, money, toMinor, today } from "@/lib/format";
 import type { Employee, PayrollItem } from "@/lib/types";
-import { generatePayroll as createPayroll, payrollPaid, payrollRemaining, recordAdvance, recordPayrollPayment } from "@/lib/payroll";
+import { generatePayroll as createPayroll, payrollPaid, payrollRemaining, recordAdvance, recordPayrollPayment, voidPayrollPayment } from "@/lib/payroll";
 import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
@@ -51,6 +51,9 @@ function EmployeesPage() {
   const [adv, setAdv] = useState({ amount: "", reason: "" });
   const [payFor, setPayFor] = useState<PayrollItem | null>(null);
   const [payAmount, setPayAmount] = useState("");
+  const [paymentHistoryFor, setPaymentHistoryFor] = useState<PayrollItem | null>(null);
+  const [voidPayrollPaymentId, setVoidPayrollPaymentId] = useState<string | null>(null);
+  const [voidPayrollReason, setVoidPayrollReason] = useState("");
   const [employeeQ, setEmployeeQ] = useState("");
   const debouncedEmployeeQ = useDebouncedValue(employeeQ);
 
@@ -73,6 +76,7 @@ function EmployeesPage() {
   if (!allowed("payroll.view")) return <Denied />;
   const currentDb = db;
   const canEdit = allowed("payroll.create");
+  const canVoidPayroll = allowed("payroll.void");
   const cur = currentDb.settings.currency;
 
   function saveEmployee() {
@@ -135,6 +139,18 @@ function EmployeesPage() {
       recordPayrollPayment(payFor.id, amount, actor, "دفعة راتب");
       setPayFor(null);
       setPayAmount("");
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
+  }
+
+  function confirmVoidPayrollPayment() {
+    if (!voidPayrollPaymentId) return;
+    try {
+      voidPayrollPayment(voidPayrollPaymentId, voidPayrollReason, actor);
+      setVoidPayrollPaymentId(null);
+      setVoidPayrollReason("");
       setError(null);
     } catch (caught) {
       setError((caught as Error).message);
@@ -339,6 +355,7 @@ function EmployeesPage() {
                       دفع
                     </Button>
                   ) : null}
+                  <Button variant="ghost" onClick={() => { setPaymentHistoryFor(i); setError(null); }}>الدفعات</Button>
                   {i.status === "paid" ? (
                     <Button variant="ghost" onClick={() => printSalaryReceipt(i)}>
                       🖨️ طباعة سند
@@ -439,6 +456,37 @@ function EmployeesPage() {
             </Button>
             <Button onClick={saveAdvance}>حفظ</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!paymentHistoryFor} title="دفعات الراتب" onClose={() => { setPaymentHistoryFor(null); setError(null); }} wide>
+        {paymentHistoryFor ? (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted p-3 text-sm">
+              <b>{currentDb.employees.find((item) => item.id === paymentHistoryFor.employee_id)?.full_name ?? "—"}</b> — {paymentHistoryFor.period}
+            </div>
+            {currentDb.payroll_payments.filter((item) => item.payroll_item_id === paymentHistoryFor.id).length ? (
+              <Table head={["التاريخ", "المبلغ", "ملاحظة", "الحالة", ""]}>
+                {currentDb.payroll_payments.filter((item) => item.payroll_item_id === paymentHistoryFor.id).sort((a, b) => b.paid_at.localeCompare(a.paid_at)).map((payment) => (
+                  <tr key={payment.id} className={payment.is_void ? "opacity-60" : ""}>
+                    <Td>{dateStr(payment.paid_at)}</Td><Td className="tabular-nums">{money(payment.amount, cur)}</Td><Td>{payment.note || "—"}</Td>
+                    <Td>{payment.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
+                    <Td>{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</Td>
+                  </tr>
+                ))}
+              </Table>
+            ) : <Empty text="لا توجد دفعات راتب مسجلة بعد." />}
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!voidPayrollPaymentId} title="إلغاء دفعة راتب" onClose={() => setVoidPayrollPaymentId(null)}>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-muted p-3 text-sm">الإلغاء لا يحذف الدفعة؛ تبقى محفوظة بالسجل ويُعاد احتساب الرصيد تلقائياً.</p>
+          <Field label="سبب الإلغاء"><Input value={voidPayrollReason} onChange={(e) => setVoidPayrollReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
+          {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setVoidPayrollPaymentId(null)}>تراجع</Button><Button variant="danger" onClick={confirmVoidPayrollPayment}>تأكيد الإلغاء</Button></div>
         </div>
       </Modal>
 

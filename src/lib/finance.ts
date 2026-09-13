@@ -223,14 +223,12 @@ function createMonthlyChargeInDb(db: DB, enrollment: Enrollment, period: string)
 
   const amount = enrollment.monthly_price_snapshot ?? Math.max(0, enrollment.price_snapshot - enrollment.discount_snapshot);
   if (!Number.isInteger(amount) || amount < 0) throw new Error("قيمة الاستحقاق الشهري غير صالحة");
-  if (amount === 0) return false;
-
   db.installments.push({
     ...baseFields(),
     invoice_id: invoice.id,
     due_date: `${period}-01`,
     amount,
-    status: "due",
+    status: amount === 0 ? "paid" : "due",
     kind: "monthly",
     seq: invoiceInstallments(db, invoice.id).filter((item) => item.kind === "monthly").length + 1,
     period,
@@ -690,6 +688,48 @@ export function voidPayment(paymentId: ID, reason: string, actor: Actor): void {
     recomputeInvoice(db, payment.invoice_id);
     audit(db, actor, "payments", payment.id, "void", `إلغاء إيصال ${payment.receipt_no} — ${reason.trim()}`);
   });
+}
+
+export function recordExpense(
+  args: { category: string; amount: number; date: string; note?: string },
+  actor: Actor,
+): ID {
+  const category = args.category.trim();
+  if (!category) throw new Error("بند المصروف إلزامي");
+  if (!Number.isInteger(args.amount) || args.amount <= 0) throw new Error("مبلغ المصروف غير صالح");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date)) throw new Error("تاريخ المصروف غير صالح");
+  let created: ID = "";
+  transact((db) => {
+    const expense = {
+      ...baseFields(), category, amount: args.amount, date: args.date, note: args.note?.trim() ?? "",
+      user_id: actor.id, is_void: false,
+    };
+    db.expenses.push(expense);
+    created = expense.id;
+    audit(db, actor, "expenses", expense.id, "create", `مصروف ${category} بقيمة ${args.amount / 100}`);
+  });
+  return created;
+}
+
+export function recordIncome(
+  args: { source: string; amount: number; date: string; note?: string },
+  actor: Actor,
+): ID {
+  const source = args.source.trim();
+  if (!source) throw new Error("مصدر المدخول إلزامي");
+  if (!Number.isInteger(args.amount) || args.amount <= 0) throw new Error("مبلغ المدخول غير صالح");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date)) throw new Error("تاريخ المدخول غير صالح");
+  let created: ID = "";
+  transact((db) => {
+    const income = {
+      ...baseFields(), source, amount: args.amount, date: args.date, note: args.note?.trim() ?? "",
+      user_id: actor.id, is_void: false,
+    };
+    db.incomes.push(income);
+    created = income.id;
+    audit(db, actor, "incomes", income.id, "create", `مدخول ${source} بقيمة ${args.amount / 100}`);
+  });
+  return created;
 }
 
 export function voidExpense(expenseId: ID, actor: Actor, reason: string): void {

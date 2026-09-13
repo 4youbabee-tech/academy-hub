@@ -172,5 +172,15 @@ generateMonthlyStudentCharges(next, actor);
 transitionCurrent = snapshot()!;
 assert.deepEqual(studentMonthlyLedger(transitionCurrent, "student-legacy").map((row) => [row.period, row.amount]), [[currentPeriod, 10_000], [next, 12_000]], "term changes must affect future months only");
 
+const zeroDb = emptyDb();
+zeroDb.users.push({ ...baseFields(), id: actor.id, username: "owner-zero", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
+zeroDb.students.push({ ...baseFields(), id: "student-zero", code: "ST-Z", full_name: "طالب خصم كامل", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });
+zeroDb.courses.push({ ...baseFields(), id: "course-zero", name: "عام مجاني", code: "ZERO", level: "", hours: 1, default_price: 10_000, active: true });
+zeroDb.classes.push({ ...baseFields(), id: "class-zero", name: "صف مجاني", course_id: "course-zero", teacher_id: null, term: "", capacity: 10, start_date: today(), end_date: today(), schedule: [], status: "running" });
+replaceDb(zeroDb);
+createMonthlyEnrollmentWithInvoice({ student_id: "student-zero", class_id: "class-zero", monthly_price: 10_000, discount: 10_000, discount_title: "خصم كامل", start_period: currentPeriod }, actor);
+const zeroCurrent = snapshot()!;
+assert.deepEqual(studentMonthlyLedger(zeroCurrent, "student-zero").map((row) => [row.period, row.amount, row.status]), [[currentPeriod, 0, "paid"]], "fully discounted student must still have a processed monthly row");
+
 console.log("Academy Hub monthly billing + partial payroll scenarios: PASS");
 process.exit(0);

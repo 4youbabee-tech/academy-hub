@@ -312,7 +312,7 @@ const PROTECTED_FINANCIAL_COLLECTIONS = new Set<CollectionKey>([
 
 function assertGenericFinancialMutationAllowed(key: CollectionKey): void {
   if (PROTECTED_FINANCIAL_COLLECTIONS.has(key)) {
-    throw new Error("السجلات المالية لا تُعدّل أو تُحذف مباشرة. استخدم العملية المالية المخصصة مع سجل التدقيق.");
+    throw new Error("السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة. استخدم العملية المالية المخصصة مع سجل التدقيق.");
   }
 }
 
@@ -348,6 +348,7 @@ export function insert<K extends CollectionKey>(
   actor: Actor,
   detail: string,
 ): ID {
+  assertGenericFinancialMutationAllowed(key);
   const record = { ...baseFields(), ...data } as DB[K][number];
   transact((db) => {
     if (key === "users") assertUserCreate(db, record as User, actor);

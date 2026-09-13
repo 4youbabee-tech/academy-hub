@@ -3,9 +3,8 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { insert } from "@/lib/db";
 import { dateStr, money, toMinor, today } from "@/lib/format";
-import { profitAndLoss, voidExpense, voidIncome } from "@/lib/finance";
+import { profitAndLoss, recordExpense, recordIncome, voidExpense, voidIncome } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
 
@@ -71,24 +70,17 @@ function ExpensesPage() {
     if (amount <= 0) return setError("المبلغ غير صالح");
     if (!form.category.trim()) return setError(tab === "expense" ? "البند إلزامي" : "المصدر إلزامي");
 
-    if (tab === "expense") {
-      insert(
-        "expenses",
-        { category: form.category.trim(), amount, date: form.date, note: form.note, user_id: actor.id, is_void: false },
-        actor,
-        `مصروف ${form.category}`,
-      );
-    } else {
-      insert(
-        "incomes",
-        { source: form.category.trim(), amount, date: form.date, note: form.note, user_id: actor.id, is_void: false },
-        actor,
-        `مدخول ${form.category}`,
-      );
+    try {
+      if (tab === "expense") {
+        recordExpense({ category: form.category, amount, date: form.date, note: form.note }, actor);
+      } else {
+        recordIncome({ source: form.category, amount, date: form.date, note: form.note }, actor);
+      }
+      setOpen(false);
+      setError(null);
+    } catch (caught) {
+      setError((caught as Error).message);
     }
-
-    setOpen(false);
-    setError(null);
   }
 
   function confirmVoidExpense() {

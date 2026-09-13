@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
+import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { invoiceFinancials, studentBalance, studentMonthlyLedger } from "@/lib/finance";
+import { invoiceFinancials, studentBalance, studentMonthlyLedger, voidInstallment } from "@/lib/finance";
 import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
@@ -20,11 +21,15 @@ export const Route = createFileRoute("/students/$id")({
 
 function StudentProfile() {
   const { id } = Route.useParams();
-  const { db, allowed } = useApp();
+  const { db, actor, allowed } = useApp();
+  const [voidMonthlyId, setVoidMonthlyId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidError, setVoidError] = useState<string | null>(null);
   if (!db) return null;
   if (!allowed("students.view")) return <Denied />;
   const currentDb = db;
   const canViewFinance = allowed("finance.view");
+  const canVoidFinance = allowed("finance.void");
 
   const student = currentDb.students.find((s) => s.id === id);
   if (!student) return <Empty text="الطالب غير موجود." />;
@@ -41,6 +46,18 @@ function StudentProfile() {
     .filter((p) => p.student_id === student.id)
     .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
   const monthlyLedger = studentMonthlyLedger(currentDb, student.id);
+
+  function confirmVoidMonthly() {
+    if (!voidMonthlyId) return;
+    try {
+      voidInstallment(voidMonthlyId, voidReason, actor);
+      setVoidMonthlyId(null);
+      setVoidReason("");
+      setVoidError(null);
+    } catch (error) {
+      setVoidError((error as Error).message);
+    }
+  }
 
   function courseAndClassForInvoice(invoiceId: string): string {
     const invoice = currentDb.invoices.find((i) => i.id === invoiceId);
@@ -131,7 +148,7 @@ function StudentProfile() {
       {canViewFinance && monthlyLedger.length ? (
         <>
           <h2 className="mb-2 mt-6 text-sm font-bold">تفصيل الاستحقاقات الشهرية</h2>
-          <Table head={["الشهر", "المستحق", "المدفوع", "المتبقي", "الحالة"]}>
+          <Table head={["الشهر", "المستحق", "المدفوع", "المتبقي", "الحالة", ""]}>
             {monthlyLedger.map((row) => (
               <tr key={row.installment_id}>
                 <Td className="font-semibold">{row.period}</Td>
@@ -141,11 +158,25 @@ function StudentProfile() {
                 <Td>
                   {row.status === "paid" ? <Badge tone="success">مدفوع</Badge> : row.status === "partial" ? <Badge tone="warning">جزئي</Badge> : <Badge tone="danger">غير مدفوع</Badge>}
                 </Td>
+                <Td>
+                  {canVoidFinance && row.paid === 0 && row.due > 0 ? (
+                    <Button variant="ghost" onClick={() => { setVoidMonthlyId(row.installment_id); setVoidReason(""); setVoidError(null); }}>إلغاء الاستحقاق</Button>
+                  ) : null}
+                </Td>
               </tr>
             ))}
           </Table>
         </>
       ) : null}
+
+      <Modal open={!!voidMonthlyId} title="إلغاء استحقاق شهري" onClose={() => setVoidMonthlyId(null)}>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-muted p-3 text-sm">سيبقى الاستحقاق محفوظاً بحالة ملغاة في السجل ولن يدخل في رصيد الطالب. إذا كان عليه أي قبض، سيمنع النظام الإلغاء.</p>
+          <Field label="سبب الإلغاء"><Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
+          {voidError ? <p className="text-sm font-semibold text-destructive">{voidError}</p> : null}
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setVoidMonthlyId(null)}>تراجع</Button><Button variant="danger" onClick={confirmVoidMonthly}>تأكيد الإلغاء</Button></div>
+        </div>
+      </Modal>
 
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2> : null}
       {canViewFinance && invoices.length ? (

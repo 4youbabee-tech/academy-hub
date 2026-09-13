@@ -7,6 +7,8 @@ import {
   invoiceFinancials,
   payrollItemCost,
   profitAndLoss,
+  recordExpense,
+  recordIncome,
   recordPayment,
   studentBalance,
   voidExpense,
@@ -97,11 +99,11 @@ assert.throws(
 );
 assert.throws(
   () => remove("payments", payment20, ownerActor, "حذف مباشر"),
-  /السجلات المالية لا تُعدّل أو تُحذف مباشرة/,
+  /السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة/,
 );
 assert.throws(
   () => update("invoices", invoice.id, { total: 1 }, ownerActor, "تعديل مباشر"),
-  /السجلات المالية لا تُعدّل أو تُحذف مباشرة/,
+  /السجلات المالية لا تُنشأ أو تُعدّل أو تُحذف مباشرة/,
 );
 
 assert.throws(
@@ -160,17 +162,16 @@ assert.equal(current.advances.find((advance) => advance.reason === "سلفة أ�
 const payrollAccountingDate = localDateKey(current.payroll_items.find((item) => item.id === payroll.id)!.paid_at!);
 assert.equal(profitAndLoss(current, "2026-08-01", payrollAccountingDate).payroll, 50_000);
 
-const expenseId = insert("expenses", {
-  category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
-}, ownerActor, "مصروف");
+assert.throws(() => insert("expenses", {
+  category: "ممنوع", amount: 100, date: "2026-08-10", note: "", user_id: ownerActor.id, is_void: false,
+}, ownerActor, "إنشاء مباشر"), /لا تُنشأ أو تُعدّل أو تُحذف مباشرة/);
+const expenseId = recordExpense({ category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار" }, ownerActor);
 assert.throws(() => voidExpense(expenseId, ownerActor, ""), /سبب الإلغاء إلزامي/);
 voidExpense(expenseId, ownerActor, "تكرار إدخال");
 current = snapshot()!;
 assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").expenses, 0);
 
-const incomeId = insert("incomes", {
-  source: "دخل تجريبي", amount: 7_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
-}, ownerActor, "مدخول");
+const incomeId = recordIncome({ source: "دخل تجريبي", amount: 7_000, date: "2026-08-10", note: "اختبار" }, ownerActor);
 assert.throws(() => voidIncome(incomeId, ownerActor, ""), /سبب الإلغاء إلزامي/);
 voidIncome(incomeId, ownerActor, "قيد خاطئ");
 current = snapshot()!;
