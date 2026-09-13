@@ -11,7 +11,7 @@ import {
 const DB_NAME = "institute-db";
 const STORE = "kv";
 const KEY = "main";
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const storage = createIndexedDbStorage<DB>({ databaseName: DB_NAME, storeName: STORE, key: KEY });
 
@@ -53,6 +53,7 @@ export function emptyDb(): DB {
       receipt_show_guardian: true,
       receipt_show_notes: true,
       receipt_footer_text: "شكراً لثقتكم بنا",
+      discount_presets: [],
     },
     expense_categories: ["إيجار", "كهرباء", "قرطاسية", "صيانة", "تسويق", "أخرى"],
     users: [],
@@ -65,6 +66,7 @@ export function emptyDb(): DB {
     payments: [],
     employees: [],
     payroll_items: [],
+    payroll_payments: [],
     advances: [],
     expenses: [],
     incomes: [],
@@ -104,14 +106,51 @@ function normalizeDb(value: unknown): DB {
     ...settingsRest
   } = rawSettings;
 
+  const source = rest as Partial<DB>;
+  const array = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
+
   return {
     ...base,
-    ...(rest as Partial<DB>),
+    ...source,
     schema_version: SCHEMA_VERSION,
     settings: {
       ...base.settings,
       ...(settingsRest as Partial<Settings>),
+      discount_presets: Array.isArray(settingsRest["discount_presets"])
+        ? settingsRest["discount_presets"] as Settings["discount_presets"]
+        : [],
     },
+    students: array<DB["students"][number]>(source.students).map((student) => ({
+      ...student,
+      mother_name: typeof student.mother_name === "string" ? student.mother_name : "",
+      school_name: typeof student.school_name === "string" ? student.school_name : "",
+    })),
+    enrollments: array<DB["enrollments"][number]>(source.enrollments).map((enrollment) => ({
+      ...enrollment,
+      billing_mode: enrollment.billing_mode ?? "legacy",
+      billing_start_period: enrollment.billing_start_period ?? null,
+      billing_end_period: enrollment.billing_end_period ?? null,
+      monthly_price_snapshot: enrollment.monthly_price_snapshot ?? 0,
+      discount_preset_id: enrollment.discount_preset_id ?? null,
+      discount_title_snapshot: enrollment.discount_title_snapshot ?? enrollment.discount_reason ?? "",
+    })),
+    installments: array<DB["installments"][number]>(source.installments).map((installment) => ({
+      ...installment,
+      period: installment.period ?? null,
+      is_void: installment.is_void ?? false,
+      void_reason: installment.void_reason ?? "",
+      voided_at: installment.voided_at ?? null,
+    })),
+    employees: array<DB["employees"][number]>(source.employees).map((employee) => ({
+      ...employee,
+      ended_at: employee.ended_at ?? null,
+    })),
+    advances: array<DB["advances"][number]>(source.advances).map((advance) => ({
+      ...advance,
+      allocated_payroll_id: advance.allocated_payroll_id ?? null,
+      settled_at: advance.settled_at ?? null,
+    })),
+    payroll_payments: array<DB["payroll_payments"][number]>(source.payroll_payments),
   };
 }
 
@@ -208,6 +247,24 @@ export function replaceDb(next: DB): void {
 
 /* ---------------- audit + generic CRUD ---------------- */
 
+const PROTECTED_FINANCIAL_COLLECTIONS = new Set<CollectionKey>([
+  "enrollments",
+  "invoices",
+  "installments",
+  "payments",
+  "payroll_items",
+  "payroll_payments",
+  "advances",
+  "expenses",
+  "incomes",
+]);
+
+function assertGenericFinancialMutationAllowed(key: CollectionKey): void {
+  if (PROTECTED_FINANCIAL_COLLECTIONS.has(key)) {
+    throw new Error("السجلات المالية لا تُعدّل أو تُحذف مباشرة. استخدم العملية المالية المخصصة مع سجل التدقيق.");
+  }
+}
+
 export interface Actor {
   id: ID | null;
   name: string;
@@ -256,6 +313,7 @@ export function update<K extends CollectionKey>(
   actor: Actor,
   detail: string,
 ): void {
+  assertGenericFinancialMutationAllowed(key);
   transact((db) => {
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);
@@ -275,6 +333,7 @@ export function update<K extends CollectionKey>(
 }
 
 export function remove<K extends CollectionKey>(key: K, id: ID, actor: Actor, detail: string): void {
+  assertGenericFinancialMutationAllowed(key);
   transact((db) => {
     const list = db[key] as unknown as Base[];
     const idx = list.findIndex((r) => r.id === id);
