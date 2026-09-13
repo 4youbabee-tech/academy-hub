@@ -1,0 +1,36 @@
+name: Publish Academy Hub v1.1.0 tag
+
+on:
+  push:
+    branches:
+      - academy-v1.1.0-upgrade
+    paths:
+      - ".github/workflows/publish-v1.1.0-tag.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create release tag on approved main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="1744728c45d3338792b54efcebdcdd4c83024adb"
+          git fetch origin main --tags
+          test "$(git rev-parse origin/main)" = "$TARGET"
+          if git rev-parse -q --verify "refs/tags/v1.1.0" >/dev/null; then
+            test "$(git rev-list -n 1 v1.1.0)" = "$TARGET"
+            echo "v1.1.0 already points to approved target."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a v1.1.0 "$TARGET" -m "Academy Hub v1.1.0"
+          git push origin refs/tags/v1.1.0
