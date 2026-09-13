@@ -3,6 +3,7 @@ import { mkdir, copyFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 const DATABASE_SCHEMA_VERSION = 1;
+const APP_SNAPSHOT_SCHEMA_VERSION = 4;
 const COLLECTIONS = [
   "users",
   "students",
@@ -379,10 +380,102 @@ export class AcademyDatabase {
     if (!info.isFile() || info.size < 512) throw new Error("ملف النسخة الاحتياطية غير صالح.");
     const candidate = new DatabaseSync(source, { readOnly: true });
     try {
-      const table = candidate
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'app_meta'")
-        .get();
-      if (!table) throw new Error("الملف ليس نسخة SQLite صالحة لـ Academy Hub.");
+      const integrityRows = candidate.prepare("PRAGMA integrity_check").all();
+      if (!integrityRows.length || integrityRows.some((row) => String(row.integrity_check ?? "").toLowerCase() !== "ok")) {
+        throw new Error("فشل فحص سلامة SQLite للنسخة الاحتياطية.");
+      }
+      const tables = new Set(candidate.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
+      if (!tables.has("app_meta") || !tables.has("entities")) throw new Error("الملف ليس نسخة SQLite صالحة لـ Academy Hub.");
+
+      const getMeta = (key) => {
+        const row = candidate.prepare("SELECT value_json FROM app_meta WHERE key = ?").get(key);
+        return parseJson(row?.value_json, undefined);
+      };
+      const schemaVersion = Number(getMeta("schema_version"));
+      const settings = getMeta("settings");
+      if (!Number.isInteger(schemaVersion) || schemaVersion < 1 || schemaVersion > APP_SNAPSHOT_SCHEMA_VERSION) {
+        throw new Error("إصدار بيانات النسخة الاحتياطية غير مدعوم.");
+      }
+      if (!settings || typeof settings !== "object") throw new Error("إعدادات النسخة الاحتياطية غير موجودة.");
+
+      const collectionRows = candidate.prepare("SELECT collection, data_json FROM entities ORDER BY collection, position").all();
+      const snapshot = Object.fromEntries(COLLECTIONS.map((collection) => [collection, []]));
+      for (const row of collectionRows) {
+        if (!COLLECTION_SET.has(row.collection)) continue;
+        const record = parseJson(row.data_json, null);
+        if (!record || typeof record !== "object" || typeof record.id !== "string") throw new Error(`سجل تالف ضمن ${row.collection}.`);
+        snapshot[row.collection].push(record);
+      }
+
+      const idSet = (collection) => new Set(snapshot[collection].map((item) => item.id));
+      const users = idSet("users");
+      const students = idSet("students");
+      const classes = idSet("classes");
+      const enrollments = idSet("enrollments");
+      const invoices = idSet("invoices");
+      const employees = idSet("employees");
+      const payrollItems = idSet("payroll_items");
+      if (!snapshot.users.some((item) => item.role === "owner" && item.is_active === true)) throw new Error("النسخة الاحتياطية لا تحتوي مالكاً نشطاً.");
+      const unique = (values, label) => {
+        const seen = new Set();
+        for (const value of values) {
+          if (!value) continue;
+          const key = String(value).toLowerCase();
+          if (seen.has(key)) throw new Error(`قيمة مكررة غير صالحة في ${label}.`);
+          seen.add(key);
+        }
+      };
+      unique(snapshot.users.map((item) => item.username), "أسماء المستخدمين");
+      unique(snapshot.students.map((item) => item.code), "رموز الطلاب");
+      unique(snapshot.payments.map((item) => item.receipt_no), "أرقام سندات القبض");
+      const money = (value, label, allowZero = true) => {
+        if (!Number.isInteger(value) || value < 0 || (!allowZero && value === 0)) throw new Error(`قيمة مالية غير صالحة في ${label}.`);
+      };
+      for (const item of snapshot.enrollments) {
+        if (!students.has(item.student_id) || !classes.has(item.class_id)) throw new Error("علاقة تسجيل طالب غير صالحة في النسخة الاحتياطية.");
+        money(item.price_snapshot, "التسجيل");
+        money(item.discount_snapshot, "خصم التسجيل");
+      }
+      const invoiceById = new Map(snapshot.invoices.map((item) => [item.id, item]));
+      for (const item of snapshot.invoices) {
+        if (!enrollments.has(item.enrollment_id) || !students.has(item.student_id)) throw new Error("علاقة فاتورة غير صالحة في النسخة الاحتياطية.");
+        money(item.total, "الفاتورة");
+      }
+      const monthlyKeys = new Set();
+      for (const item of snapshot.installments) {
+        if (!invoices.has(item.invoice_id)) throw new Error("استحقاق مرتبط بفاتورة غير موجودة.");
+        money(item.amount, "الاستحقاق");
+        if (!item.is_void && item.kind === "monthly" && item.period) {
+          const key = `${item.invoice_id}|${item.period}`;
+          if (monthlyKeys.has(key)) throw new Error("يوجد استحقاق شهري مكرر في النسخة الاحتياطية.");
+          monthlyKeys.add(key);
+        }
+      }
+      for (const item of snapshot.payments) {
+        const invoice = invoiceById.get(item.invoice_id);
+        if (!invoice || !students.has(item.student_id) || invoice.student_id !== item.student_id) throw new Error("سند قبض بعلاقة غير صالحة.");
+        money(item.amount, "سند القبض", false);
+      }
+      for (const item of snapshot.payroll_items) {
+        if (!employees.has(item.employee_id)) throw new Error("كشف راتب مرتبط بموظف غير موجود.");
+        money(item.base_snapshot, "الراتب الأساسي");
+        money(item.bonus, "مكافأة الراتب");
+        money(item.deduction, "حسم الراتب");
+        money(item.advance_deducted, "سلفة الراتب");
+        money(item.net, "صافي الراتب");
+      }
+      for (const item of snapshot.payroll_payments) {
+        if (!payrollItems.has(item.payroll_item_id)) throw new Error("دفعة راتب مرتبطة بكشف غير موجود.");
+        money(item.amount, "دفعة الراتب", false);
+      }
+      for (const item of snapshot.advances) {
+        if (!employees.has(item.employee_id)) throw new Error("سلفة مرتبطة بموظف غير موجود.");
+        if (item.allocated_payroll_id && !payrollItems.has(item.allocated_payroll_id)) throw new Error("سلفة مرتبطة بكشف راتب غير موجود.");
+        money(item.amount, "السلفة", false);
+      }
+      if (users.size !== snapshot.users.length || enrollments.size !== snapshot.enrollments.length || invoices.size !== snapshot.invoices.length) {
+        throw new Error("يوجد معرّف مكرر في النسخة الاحتياطية.");
+      }
     } finally {
       candidate.close();
     }

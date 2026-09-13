@@ -22,9 +22,59 @@ export function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export async function hashPassword(pw: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`inst::${pw}`));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+const PBKDF2_ITERATIONS = 210_000;
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(value: string): Uint8Array {
+  if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) throw new Error("صيغة كلمة المرور المخزنة غير صالحة");
+  const result = new Uint8Array(value.length / 2);
+  for (let index = 0; index < result.length; index += 1) result[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  return result;
+}
+
+async function legacyPasswordHash(password: string): Promise<string> {
+  const buffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`inst::${password}`));
+  return bytesToHex(new Uint8Array(buffer));
+}
+
+async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<string> {
+  const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const saltBuffer = Uint8Array.from(salt).buffer;
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBuffer, iterations },
+    material,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+export function isLegacyPasswordHash(value: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(value);
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const derived = await derivePassword(password, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToHex(salt)}$${derived}`;
+}
+
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (isLegacyPasswordHash(storedHash)) return (await legacyPasswordHash(password)) === storedHash.toLowerCase();
+  const parts = storedHash.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iterations = Number(parts[1]);
+  if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) return false;
+  try {
+    const salt = hexToBytes(parts[2] ?? "");
+    const expected = parts[3] ?? "";
+    if (salt.length < 16 || !/^[0-9a-f]{64}$/i.test(expected)) return false;
+    return (await derivePassword(password, salt, iterations)) === expected.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export function baseFields(): Base {

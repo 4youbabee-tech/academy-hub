@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { baseFields, emptyDb, insert, remove, replaceDb, snapshot, update } from "../src/lib/db";
+import { baseFields, emptyDb, hashPassword, insert, isLegacyPasswordHash, remove, replaceDb, snapshot, update, verifyPassword } from "../src/lib/db";
 import {
   cancelEnrollmentWithInvoice,
   createEnrollmentWithInvoice,
@@ -17,6 +17,18 @@ import { localDateKey } from "../src/lib/format";
 
 process.env.TZ = "Asia/Beirut";
 assert.equal(localDateKey("2026-08-22T21:30:00.000Z"), "2026-08-23", "local accounting date");
+
+const newHashA = await hashPassword("secret-123");
+const newHashB = await hashPassword("secret-123");
+assert.notEqual(newHashA, newHashB, "salted hashes must differ");
+assert.equal(isLegacyPasswordHash(newHashA), false);
+assert.equal(await verifyPassword("secret-123", newHashA), true);
+assert.equal(await verifyPassword("wrong", newHashA), false);
+const legacyBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("inst::legacy-pass"));
+const legacyHash = Array.from(new Uint8Array(legacyBuffer)).map((value) => value.toString(16).padStart(2, "0")).join("");
+assert.equal(isLegacyPasswordHash(legacyHash), true);
+assert.equal(await verifyPassword("legacy-pass", legacyHash), true);
+assert.equal(await verifyPassword("wrong", legacyHash), false);
 
 const ownerActor = { id: "owner-1", name: "مالك" };
 const directorActor = { id: "director-1", name: "مدير" };

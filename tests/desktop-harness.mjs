@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import os from "node:os";
 import path from "node:path";
 
@@ -36,6 +37,10 @@ const snapshot = {
   settings: { institute_name: "اختبار Academy Hub", currency: "USD" },
   expense_categories: ["إيجار"],
   ...collections,
+  users: [{
+    id: "owner-1", created_at: now, updated_at: now, branch_id: "main", sync_status: "local",
+    username: "owner", full_name: "مالك الاختبار", password_hash: "x", role: "owner", is_active: true,
+  }],
   students: [
     {
       id: "student-1",
@@ -63,6 +68,22 @@ try {
   assert.equal(database.loadSnapshot().students.length, 0);
   await database.restoreFrom(backupPath);
   assert.equal(database.loadSnapshot().students.length, 1);
+
+  const invalidBackupPath = path.join(temp, "invalid-relations.sqlite");
+  await copyFile(backupPath, invalidBackupPath);
+  const invalidDb = new DatabaseSync(invalidBackupPath);
+  try {
+    const row = invalidDb.prepare("SELECT data_json FROM entities WHERE collection = 'students' AND id = 'student-1'").get();
+    const student = JSON.parse(row.data_json);
+    invalidDb.prepare("DELETE FROM entities WHERE collection = 'students' AND id = ?").run(student.id);
+    invalidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES ('invoices', 'invoice-broken', 0, ?)").run(JSON.stringify({
+      id: "invoice-broken", enrollment_id: "missing-enrollment", student_id: "student-1", total: 100, status: "open", issued_at: now,
+    }));
+  } finally {
+    invalidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(invalidBackupPath), /علاقة فاتورة|علاقة تسجيل|مالكاً نشطاً/);
+  assert.equal(database.loadSnapshot().students.length, 1, "failed restore must preserve current database");
 
   const largeStudentSet = Array.from({ length: 2_500 }, (_, index) => ({
     ...snapshot.students[0],
