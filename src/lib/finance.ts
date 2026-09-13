@@ -378,7 +378,7 @@ export function generateMonthlyStudentChargesInDb(db: DB, period: string): numbe
 /** Generates exactly one target period for all eligible monthly enrollments; safe to call repeatedly. */
 export function generateMonthlyStudentCharges(period: string, actor: Actor): MonthlyChargeGenerationResult {
   assertPeriod(period);
-  let result: MonthlyChargeGenerationResult = { period, created: 0, skipped: 0 };
+  const result: MonthlyChargeGenerationResult = { period, created: 0, skipped: 0 };
   transact((db) => {
     const eligible = db.enrollments.filter((item) => item.billing_mode === "monthly").length;
     result.created = generateMonthlyStudentChargesInDb(db, period);
@@ -391,7 +391,7 @@ export function generateMonthlyStudentCharges(period: string, actor: Actor): Mon
 /** Fills every missing monthly charge from each enrollment start through targetPeriod. */
 export function catchUpMonthlyStudentCharges(targetPeriod: string, actor: Actor): MonthlyChargeGenerationResult {
   assertPeriod(targetPeriod);
-  let result: MonthlyChargeGenerationResult = { period: targetPeriod, created: 0, skipped: 0 };
+  const result: MonthlyChargeGenerationResult = { period: targetPeriod, created: 0, skipped: 0 };
   transact((db) => {
     for (const enrollment of db.enrollments.filter((item) => item.billing_mode === "monthly" && item.billing_start_period)) {
       const end = enrollment.billing_end_period && enrollment.billing_end_period < targetPeriod
