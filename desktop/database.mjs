@@ -14,6 +14,7 @@ const COLLECTIONS = [
   "payments",
   "employees",
   "payroll_items",
+  "payroll_payments",
   "advances",
   "expenses",
   "incomes",
