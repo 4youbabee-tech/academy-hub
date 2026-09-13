@@ -96,7 +96,8 @@ voidPayment(payment100, "اختبار", ownerActor);
 current = snapshot()!;
 assert.equal(invoiceBalance(current, invoice.id), 30_000);
 assert.deepEqual(studentBalance(current, "student-1"), { billed: 32_000, paid: 2_000, due: 30_000 });
-assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").tuition, 2_000);
+const paymentAccountingDate = localDateKey(current.payments.find((payment) => payment.id === payment20)!.paid_at);
+assert.equal(profitAndLoss(current, paymentAccountingDate, paymentAccountingDate).tuition, 2_000);
 
 voidPayment(payment20, "إلغاء التسجيل", ownerActor);
 cancelEnrollmentWithInvoice(current.enrollments[0]!.id, ownerActor);
@@ -135,7 +136,8 @@ payPayrollItem(payroll.id, ownerActor);
 current = snapshot()!;
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة آب")!.settled, true);
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة أيلول")!.settled, false);
-assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").payroll, 50_000);
+const payrollAccountingDate = localDateKey(current.payroll_items.find((item) => item.id === payroll.id)!.paid_at!);
+assert.equal(profitAndLoss(current, payrollAccountingDate, payrollAccountingDate).payroll, 50_000);
 
 const expenseId = insert("expenses", {
   category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
