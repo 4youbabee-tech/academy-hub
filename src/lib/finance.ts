@@ -35,8 +35,12 @@ function periodRange(from: string, to: string): string[] {
   assertPeriod(from);
   assertPeriod(to);
   if (from > to) return [];
-  const [startYear, startMonth] = from.split("-").map(Number);
-  const [endYear, endMonth] = to.split("-").map(Number);
+  const startParts = from.split("-");
+  const endParts = to.split("-");
+  const startYear = Number(startParts[0]);
+  const startMonth = Number(startParts[1]);
+  const endYear = Number(endParts[0]);
+  const endMonth = Number(endParts[1]);
   const rows: string[] = [];
   let year = startYear;
   let month = startMonth;
