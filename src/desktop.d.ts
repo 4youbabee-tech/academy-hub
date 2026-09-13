@@ -50,6 +50,8 @@ interface AcademyDesktopApi {
       latestVersion?: string;
       message: string;
     }>;
+    onPrepareClose(callback: () => void): () => void;
+    confirmClose(result: { ok: boolean; error?: string }): Promise<{ accepted: boolean }>;
     quit(): Promise<{ quitting: boolean }>;
   };
 }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { hashPassword, isLegacyPasswordHash, loadDb, snapshot, subscribe, transact, audit, verifyPassword, type Actor } from "./db";
+import { flushDb, hashPassword, isLegacyPasswordHash, loadDb, snapshot, subscribe, transact, audit, verifyPassword, type Actor } from "./db";
 import type { DB, User } from "./types";
 import { can } from "./permissions";
 import { runMonthlyGeneration } from "./monthly";
@@ -33,6 +33,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mounted = false;
       unsub();
     };
+  }, []);
+
+  useEffect(() => {
+    const desktopApp = window.academyDesktop?.app;
+    if (!desktopApp) return;
+    return desktopApp.onPrepareClose(() => {
+      void flushDb()
+        .then(() => desktopApp.confirmClose({ ok: true }))
+        .catch((error: unknown) => desktopApp.confirmClose({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+    });
   }, []);
 
   const user = useMemo(

@@ -25,6 +25,13 @@ const api = {
   app: Object.freeze({
     getInfo: () => invoke("academy:app:get-info"),
     checkForUpdates: () => invoke("academy:app:check-updates"),
+    onPrepareClose: (callback) => {
+      if (typeof callback !== "function") return () => {};
+      const listener = () => callback();
+      ipcRenderer.on("academy:app:prepare-close", listener);
+      return () => ipcRenderer.removeListener("academy:app:prepare-close", listener);
+    },
+    confirmClose: (result) => invoke("academy:app:close-ready", result),
     quit: () => invoke("academy:app:quit"),
   }),
 };

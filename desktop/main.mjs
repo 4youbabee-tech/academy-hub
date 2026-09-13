@@ -33,6 +33,9 @@ let licenseManager = null;
 let updateService = null;
 let restoring = false;
 let logFile = null;
+let closeReady = false;
+let closeRequested = false;
+let closeTimer = null;
 
 function log(message, error) {
   const suffix = error instanceof Error ? `\n${error.stack ?? error.message}` : error ? `\n${String(error)}` : "";
@@ -123,6 +126,42 @@ function handle(channel, callback) {
 function requireDatabaseAccess() {
   if (restoring) throw new Error("تجري استعادة قاعدة البيانات الآن.");
   licenseManager.assertValid();
+}
+
+function clearCloseTimer() {
+  if (closeTimer) clearTimeout(closeTimer);
+  closeTimer = null;
+}
+
+function cancelCloseRequest(detail) {
+  clearCloseTimer();
+  closeRequested = false;
+  log("Close flush failed", detail);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    void dialog.showMessageBox(mainWindow, {
+      type: "error",
+      title: "Academy Hub",
+      message: "لم يتم إغلاق البرنامج لأن حفظ البيانات لم يكتمل.",
+      detail: detail || "حاول مرة أخرى بعد لحظات.",
+    });
+  }
+}
+
+function requestRendererClose() {
+  if (closeReady || restoring) {
+    app.quit();
+    return;
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    closeReady = true;
+    app.quit();
+    return;
+  }
+  if (closeRequested) return;
+  closeRequested = true;
+  mainWindow.webContents.send("academy:app:prepare-close");
+  clearCloseTimer();
+  closeTimer = setTimeout(() => cancelCloseRequest("انتهت مهلة انتظار حفظ قاعدة البيانات."), 10_000);
 }
 
 async function printHtmlDocument({ html, pageSize = "A5" } = {}) {
@@ -276,8 +315,21 @@ function installIpcHandlers() {
     packaged: app.isPackaged,
   }));
   handle("academy:app:check-updates", () => updateService.check());
-  handle("academy:app:quit", () => {
+  handle("academy:app:close-ready", (payload) => {
+    if (!closeRequested) return { accepted: false };
+    if (payload?.ok !== true) {
+      const detail = typeof payload?.error === "string" ? payload.error.slice(0, 500) : "تعذر حفظ آخر التعديلات.";
+      cancelCloseRequest(detail);
+      return { accepted: false };
+    }
+    clearCloseTimer();
+    closeRequested = false;
+    closeReady = true;
     app.quit();
+    return { accepted: true };
+  });
+  handle("academy:app:quit", () => {
+    requestRendererClose();
     return { quitting: true };
   });
 }
@@ -331,6 +383,11 @@ async function createMainWindow(url) {
     if (!navigationUrl.startsWith(allowedOrigin)) event.preventDefault();
   });
   window.once("ready-to-show", () => window.show());
+  window.on("close", (event) => {
+    if (closeReady || restoring) return;
+    event.preventDefault();
+    requestRendererClose();
+  });
   await window.loadURL(url);
   return window;
 }
@@ -407,8 +464,14 @@ if (!lock) {
   });
 }
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (!restoring && mainWindow && !mainWindow.isDestroyed() && !closeReady) {
+    event.preventDefault();
+    requestRendererClose();
+    return;
+  }
   app.isQuitting = true;
+  clearCloseTimer();
   stopWebServer();
   if (database) {
     try {
