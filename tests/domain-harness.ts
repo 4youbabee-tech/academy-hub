@@ -145,7 +145,7 @@ current = snapshot()!;
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة آب")!.settled, true);
 assert.equal(current.advances.find((advance) => advance.reason === "سلفة أيلول")!.settled, false);
 const payrollAccountingDate = localDateKey(current.payroll_items.find((item) => item.id === payroll.id)!.paid_at!);
-assert.equal(profitAndLoss(current, payrollAccountingDate, payrollAccountingDate).payroll, 50_000);
+assert.equal(profitAndLoss(current, "2026-08-01", payrollAccountingDate).payroll, 50_000);
 
 const expenseId = insert("expenses", {
   category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
