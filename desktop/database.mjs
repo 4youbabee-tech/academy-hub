@@ -413,6 +413,7 @@ export class AcademyDatabase {
       const classes = idSet("classes");
       const enrollments = idSet("enrollments");
       const invoices = idSet("invoices");
+      const installments = idSet("installments");
       const employees = idSet("employees");
       const payrollItems = idSet("payroll_items");
       if (!snapshot.users.some((item) => item.role === "owner" && item.is_active === true)) throw new Error("النسخة الاحتياطية لا تحتوي مالكاً نشطاً.");
@@ -437,6 +438,7 @@ export class AcademyDatabase {
         money(item.discount_snapshot, "خصم التسجيل");
       }
       const invoiceById = new Map(snapshot.invoices.map((item) => [item.id, item]));
+      const payrollItemById = new Map(snapshot.payroll_items.map((item) => [item.id, item]));
       for (const item of snapshot.invoices) {
         if (!enrollments.has(item.enrollment_id) || !students.has(item.student_id)) throw new Error("علاقة فاتورة غير صالحة في النسخة الاحتياطية.");
         money(item.total, "الفاتورة");
@@ -451,10 +453,21 @@ export class AcademyDatabase {
           monthlyKeys.add(key);
         }
       }
+      const paidByInvoice = new Map();
       for (const item of snapshot.payments) {
         const invoice = invoiceById.get(item.invoice_id);
         if (!invoice || !students.has(item.student_id) || invoice.student_id !== item.student_id) throw new Error("سند قبض بعلاقة غير صالحة.");
+        if (item.installment_id && !installments.has(item.installment_id)) throw new Error("سند قبض مرتبط باستحقاق غير موجود.");
+        if (item.installment_id) {
+          const installment = snapshot.installments.find((row) => row.id === item.installment_id);
+          if (!installment || installment.invoice_id !== item.invoice_id) throw new Error("سند قبض مرتبط باستحقاق من فاتورة مختلفة.");
+        }
         money(item.amount, "سند القبض", false);
+        if (!item.is_void) paidByInvoice.set(item.invoice_id, (paidByInvoice.get(item.invoice_id) ?? 0) + item.amount);
+      }
+      for (const [invoiceId, paid] of paidByInvoice) {
+        const invoice = invoiceById.get(invoiceId);
+        if (!invoice || paid > invoice.total) throw new Error("إجمالي سندات القبض يتجاوز قيمة الفاتورة في النسخة الاحتياطية.");
       }
       for (const item of snapshot.payroll_items) {
         if (!employees.has(item.employee_id)) throw new Error("كشف راتب مرتبط بموظف غير موجود.");
@@ -464,17 +477,25 @@ export class AcademyDatabase {
         money(item.advance_deducted, "سلفة الراتب");
         money(item.net, "صافي الراتب");
       }
+      const paidByPayroll = new Map();
       for (const item of snapshot.payroll_payments) {
-        if (!payrollItems.has(item.payroll_item_id)) throw new Error("دفعة راتب مرتبطة بكشف غير موجود.");
+        const payrollItem = payrollItemById.get(item.payroll_item_id);
+        if (!payrollItem) throw new Error("دفعة راتب مرتبطة بكشف غير موجود.");
+        if (item.employee_id !== payrollItem.employee_id) throw new Error("دفعة راتب مرتبطة بموظف مختلف عن كشف الراتب.");
         money(item.amount, "دفعة الراتب", false);
+        if (!item.is_void) paidByPayroll.set(item.payroll_item_id, (paidByPayroll.get(item.payroll_item_id) ?? 0) + item.amount);
+      }
+      for (const [payrollId, paid] of paidByPayroll) {
+        const payrollItem = payrollItemById.get(payrollId);
+        if (!payrollItem || paid > payrollItem.net) throw new Error("إجمالي دفعات الراتب يتجاوز صافي الراتب في النسخة الاحتياطية.");
       }
       for (const item of snapshot.advances) {
         if (!employees.has(item.employee_id)) throw new Error("سلفة مرتبطة بموظف غير موجود.");
         if (item.allocated_payroll_id && !payrollItems.has(item.allocated_payroll_id)) throw new Error("سلفة مرتبطة بكشف راتب غير موجود.");
         money(item.amount, "السلفة", false);
       }
-      if (users.size !== snapshot.users.length || enrollments.size !== snapshot.enrollments.length || invoices.size !== snapshot.invoices.length) {
-        throw new Error("يوجد معرّف مكرر في النسخة الاحتياطية.");
+      for (const collection of COLLECTIONS) {
+        if (idSet(collection).size !== snapshot[collection].length) throw new Error(`يوجد معرّف مكرر ضمن ${collection} في النسخة الاحتياطية.`);
       }
     } finally {
       candidate.close();

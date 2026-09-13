@@ -151,6 +151,20 @@ runMonthlyGeneration(next3, actor);
 current = snapshot()!;
 assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next3).length, 0, "ended employee must not receive future payroll");
 
+current.students.push({
+  ...baseFields(), id: "student-clock", code: "ST-CLOCK", full_name: "طالب اختبار الساعة", birth_date: null,
+  gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "",
+  address: "", education_level: null, status: "active", archived_at: null, notes: "",
+});
+replaceDb(current);
+createMonthlyEnrollmentWithInvoice({ student_id: "student-clock", class_id: "class-monthly", monthly_price: 9_000, discount: 0, start_period: next2 }, actor);
+let rollbackCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(rollbackCurrent, "student-clock").length, 0, "future-start enrollment must not be billed immediately");
+runMonthlyGeneration(next2, actor);
+rollbackCurrent = snapshot()!;
+assert.equal(rollbackCurrent.settings.monthly_generation_last_period, next3, "clock rollback must never move the generation marker backwards");
+assert.equal(studentMonthlyLedger(rollbackCurrent, "student-clock").length, 0, "clock rollback must not generate an older period after a newer month was already processed");
+
 const transitionDb = emptyDb();
 transitionDb.users.push({ ...baseFields(), id: actor.id, username: "owner-transition", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
 transitionDb.students.push({ ...baseFields(), id: "student-legacy", code: "ST-L", full_name: "طالب قديم", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });

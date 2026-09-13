@@ -85,6 +85,35 @@ try {
   await assert.rejects(() => database.restoreFrom(invalidBackupPath), /علاقة فاتورة|علاقة تسجيل|مالكاً نشطاً/);
   assert.equal(database.loadSnapshot().students.length, 1, "failed restore must preserve current database");
 
+  const overpaidBackupPath = path.join(temp, "invalid-overpayment.sqlite");
+  await copyFile(backupPath, overpaidBackupPath);
+  const overpaidDb = new DatabaseSync(overpaidBackupPath);
+  try {
+    const put = overpaidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES (?, ?, ?, ?)");
+    put.run("classes", "class-overpay", 0, JSON.stringify({ id: "class-overpay", course_id: "course-x", name: "صف", capacity: 10 }));
+    put.run("enrollments", "enroll-overpay", 0, JSON.stringify({ id: "enroll-overpay", student_id: "student-1", class_id: "class-overpay", price_snapshot: 1000, discount_snapshot: 0 }));
+    put.run("invoices", "invoice-overpay", 0, JSON.stringify({ id: "invoice-overpay", enrollment_id: "enroll-overpay", student_id: "student-1", total: 1000, status: "open", issued_at: now }));
+    put.run("payments", "payment-overpay", 0, JSON.stringify({ id: "payment-overpay", invoice_id: "invoice-overpay", installment_id: null, student_id: "student-1", receipt_no: "R-OVER", amount: 1001, paid_at: now, is_void: false }));
+  } finally {
+    overpaidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(overpaidBackupPath), /يتجاوز قيمة الفاتورة/);
+  assert.equal(database.loadSnapshot().students.length, 1, "overpaid restore rejection must preserve current database");
+
+  const payrollOverpaidBackupPath = path.join(temp, "invalid-payroll-overpayment.sqlite");
+  await copyFile(backupPath, payrollOverpaidBackupPath);
+  const payrollOverpaidDb = new DatabaseSync(payrollOverpaidBackupPath);
+  try {
+    const put = payrollOverpaidDb.prepare("INSERT INTO entities(collection, id, position, data_json) VALUES (?, ?, ?, ?)");
+    put.run("employees", "employee-overpay", 0, JSON.stringify({ id: "employee-overpay", full_name: "موظف", base_salary: 1000 }));
+    put.run("payroll_items", "payroll-overpay", 0, JSON.stringify({ id: "payroll-overpay", employee_id: "employee-overpay", period: "2026-09", base_snapshot: 1000, bonus: 0, deduction: 0, advance_deducted: 0, net: 1000, status: "partial", paid_at: null }));
+    put.run("payroll_payments", "payroll-payment-overpay", 0, JSON.stringify({ id: "payroll-payment-overpay", payroll_item_id: "payroll-overpay", employee_id: "employee-overpay", amount: 1001, paid_at: now, is_void: false }));
+  } finally {
+    payrollOverpaidDb.close();
+  }
+  await assert.rejects(() => database.restoreFrom(payrollOverpaidBackupPath), /يتجاوز صافي الراتب/);
+  assert.equal(database.loadSnapshot().students.length, 1, "payroll overpayment restore rejection must preserve current database");
+
   const largeStudentSet = Array.from({ length: 2_500 }, (_, index) => ({
     ...snapshot.students[0],
     id: `student-${index + 1}`,

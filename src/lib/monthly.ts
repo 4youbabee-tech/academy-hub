@@ -27,8 +27,10 @@ function nextPeriod(period: string): string {
 
 function periodsSince(lastPeriod: string | null, targetPeriod: string): string[] {
   assertPeriod(targetPeriod);
-  if (!lastPeriod || lastPeriod >= targetPeriod) return [targetPeriod];
+  if (!lastPeriod) return [targetPeriod];
   assertPeriod(lastPeriod);
+  if (lastPeriod > targetPeriod) return [];
+  if (lastPeriod === targetPeriod) return [targetPeriod];
   const periods: string[] = [];
   let cursor = nextPeriod(lastPeriod);
   while (cursor <= targetPeriod) {
