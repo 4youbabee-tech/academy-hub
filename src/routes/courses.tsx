@@ -10,10 +10,10 @@ import type { Course } from "@/lib/types";
 export const Route = createFileRoute("/courses")({
   head: () => ({
     meta: [
-      { title: "الدورات — نظام إدارة المعهد" },
-      { name: "description", content: "إدارة الدورات والمستويات والأسعار الافتراضية وعدد الساعات." },
-      { property: "og:title", content: "الدورات — نظام إدارة المعهد" },
-      { property: "og:description", content: "الدورات والمستويات والأسعار وعدد الساعات." },
+      { title: "الأعوام الدراسية — نظام إدارة المعهد" },
+      { name: "description", content: "إدارة الأعوام الدراسية والقسط الشهري الافتراضي." },
+      { property: "og:title", content: "الأعوام الدراسية — نظام إدارة المعهد" },
+      { property: "og:description", content: "الأعوام الدراسية والأقساط الشهرية الافتراضية." },
     ],
   }),
   component: CoursesPage,
@@ -34,7 +34,7 @@ function CoursesPage() {
   const cur = db.settings.currency;
 
   function save() {
-    if (!form.name.trim()) return setError("اسم الدورة إلزامي");
+    if (!form.name.trim()) return setError("اسم العام الدراسي إلزامي");
     const payload = {
       name: form.name.trim(),
       code: form.code.trim(),
@@ -44,8 +44,8 @@ function CoursesPage() {
       active: form.active,
     };
     try {
-      if (editing) update("courses", editing.id, payload, actor, `تعديل الدورة ${payload.name}`);
-      else insert("courses", payload, actor, `إضافة الدورة ${payload.name}`);
+      if (editing) update("courses", editing.id, payload, actor, `تعديل العام الدراسي ${payload.name}`);
+      else insert("courses", payload, actor, `إضافة العام الدراسي ${payload.name}`);
       setOpen(false);
     } catch (e) {
       setError((e as Error).message);
@@ -55,8 +55,8 @@ function CoursesPage() {
   return (
     <div>
       <PageHeader
-        title="الدورات"
-        subtitle={`${db.courses.length} دورة`}
+        title="الأعوام الدراسية"
+        subtitle={`${db.courses.length} عام دراسي`}
         actions={
           canEdit ? (
             <Button
@@ -67,20 +67,18 @@ function CoursesPage() {
                 setOpen(true);
               }}
             >
-              + دورة جديدة
+              + عام دراسي جديد
             </Button>
           ) : null
         }
       />
 
       {db.courses.length ? (
-        <Table head={["الدورة", "الرمز", "المستوى", "الساعات", "السعر الافتراضي", "الحالة", ""]}>
+        <Table head={["العام الدراسي", "الرمز", "القسط الشهري الافتراضي", "الحالة", ""]}>
           {db.courses.map((c) => (
             <tr key={c.id}>
               <Td className="font-semibold">{c.name}</Td>
               <Td>{c.code || "—"}</Td>
-              <Td>{c.level || "—"}</Td>
-              <Td className="tabular-nums">{c.hours}</Td>
               <Td className="tabular-nums">{money(c.default_price, cur)}</Td>
               <Td>
                 <Badge tone={c.active ? "success" : "muted"}>{c.active ? "مفعّلة" : "موقوفة"}</Badge>
@@ -111,24 +109,18 @@ function CoursesPage() {
           ))}
         </Table>
       ) : (
-        <Empty text="لم تُضف دورات بعد." />
+        <Empty text="لم تُضف أعوام دراسية بعد." />
       )}
 
-      <Modal open={open} title={editing ? "تعديل دورة" : "دورة جديدة"} onClose={() => setOpen(false)}>
+      <Modal open={open} title={editing ? "تعديل عام دراسي" : "عام دراسي جديد"} onClose={() => setOpen(false)}>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="اسم الدورة">
+          <Field label="اسم العام الدراسي">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
           <Field label="الرمز">
             <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
           </Field>
-          <Field label="المستوى">
-            <Input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} />
-          </Field>
-          <Field label="عدد الساعات">
-            <Input type="number" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} />
-          </Field>
-          <Field label={`السعر الافتراضي (${cur})`}>
+          <Field label={`القسط الشهري الافتراضي (${cur})`}>
             <Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
           </Field>
           <Field label="الحالة">

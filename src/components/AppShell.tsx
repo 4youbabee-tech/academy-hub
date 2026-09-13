@@ -15,8 +15,8 @@ const NAV = [
     group: "الأكاديمي",
     items: [
       { to: "/students", label: "الطلاب", perm: "students.view" },
-      { to: "/courses", label: "الدورات", perm: "courses.view" },
-      { to: "/classes", label: "الصفوف والجداول", perm: "classes.view" },
+      { to: "/courses", label: "الأعوام الدراسية", perm: "courses.view" },
+      { to: "/classes", label: "الصفوف والتسجيل", perm: "classes.view" },
     ],
   },
   {
@@ -124,7 +124,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             ) : null}
             <div className="min-w-0">
               <p className="truncate text-base font-bold">{db.settings.institute_name}</p>
-              <p className="text-xs opacity-70">السنة الدراسية {db.settings.academic_year}</p>
+              <p className="text-xs opacity-70">نظام إدارة المعهد</p>
             </div>
           </div>
         </div>

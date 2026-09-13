@@ -3,7 +3,8 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
-import { audit, transact } from "@/lib/db";
+import { audit, transact, uid } from "@/lib/db";
+import { money, toMinor } from "@/lib/format";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -25,6 +26,8 @@ function SettingsPage() {
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newDiscountTitle, setNewDiscountTitle] = useState("");
+  const [newDiscountAmount, setNewDiscountAmount] = useState("");
   const [logoPreview, setLogoPreview] = useState<string | null>(db?.settings?.logo_data_url || null);
   const [desktopInfo, setDesktopInfo] = useState<{ name: string; version: string; packaged: boolean } | null>(null);
   const [licenseCustomer, setLicenseCustomer] = useState<string | null>(null);
@@ -76,6 +79,34 @@ function SettingsPage() {
 
   function removeCategory(index: number) {
     setExpenseCategories(expenseCategories.filter((_, i) => i !== index));
+  }
+
+  function addDiscountPreset() {
+    if (!settings) return;
+    const title = newDiscountTitle.trim();
+    const amount = toMinor(newDiscountAmount);
+    if (!title) return setError("عنوان الخصم إلزامي");
+    if (amount <= 0) return setError("قيمة الخصم يجب أن تكون أكبر من صفر");
+    if (settings.discount_presets.some((item) => item.active && item.title.trim().toLowerCase() === title.toLowerCase())) {
+      return setError("يوجد خصم فعّال بنفس العنوان");
+    }
+    setSettings({
+      ...settings,
+      discount_presets: [...settings.discount_presets, { id: uid(), title, amount, active: true }],
+    });
+    setNewDiscountTitle("");
+    setNewDiscountAmount("");
+    setError(null);
+  }
+
+  function toggleDiscountPreset(id: string) {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      discount_presets: settings.discount_presets.map((item) =>
+        item.id === id ? { ...item, active: !item.active } : item,
+      ),
+    });
   }
 
   function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -148,14 +179,6 @@ function SettingsPage() {
                 onChange={(e) => setSettings({ ...settings, address: e.target.value })}
                 disabled={!canEdit}
                 rows={2}
-              />
-            </Field>
-            <Field label="السنة الدراسية">
-              <Input
-                value={settings.academic_year}
-                onChange={(e) => setSettings({ ...settings, academic_year: e.target.value })}
-                disabled={!canEdit}
-                placeholder="2025-2026"
               />
             </Field>
           </div>
@@ -245,6 +268,34 @@ function SettingsPage() {
               </div>
             )}
             <p className="text-xs text-muted-foreground">تُستخدم هذه الأنواع في شاشة المصاريف.</p>
+          </div>
+        </div>
+
+        <div className="panel p-5">
+          <h2 className="mb-4 text-sm font-bold">🏷️ الخصومات الجاهزة</h2>
+          <div className="space-y-3">
+            {settings.discount_presets.length ? (
+              <Table head={["العنوان", "القيمة", "الحالة", ""]}>
+                {settings.discount_presets.map((item) => (
+                  <tr key={item.id} className={item.active ? "" : "opacity-60"}>
+                    <Td className="font-semibold">{item.title}</Td>
+                    <Td className="tabular-nums">{money(item.amount, settings.currency)}</Td>
+                    <Td><Badge tone={item.active ? "success" : "muted"}>{item.active ? "مفعّل" : "موقوف"}</Badge></Td>
+                    <Td>{canEdit ? <Button variant="ghost" onClick={() => toggleDiscountPreset(item.id)}>{item.active ? "تعطيل" : "تفعيل"}</Button> : null}</Td>
+                  </tr>
+                ))}
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground">لا توجد خصومات جاهزة بعد.</p>
+            )}
+            {canEdit ? (
+              <div className="grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+                <Input value={newDiscountTitle} onChange={(e) => setNewDiscountTitle(e.target.value)} placeholder="مثال: خصم إخوة" />
+                <Input type="number" step="0.01" min="0" value={newDiscountAmount} onChange={(e) => setNewDiscountAmount(e.target.value)} placeholder="القيمة" />
+                <Button variant="secondary" onClick={addDiscountPreset}>+ إضافة</Button>
+              </div>
+            ) : null}
+            <p className="text-xs text-muted-foreground">تعطيل الخصم يمنع استخدامه في تسجيلات جديدة، لكنه يبقى محفوظاً حتى لا يتأثر التاريخ المالي للتسجيلات السابقة.</p>
           </div>
         </div>
       </div>

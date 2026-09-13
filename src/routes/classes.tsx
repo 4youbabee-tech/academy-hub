@@ -6,11 +6,13 @@ import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationContro
 import { insert, update } from "@/lib/db";
 import {
   cancelEnrollmentWithInvoice,
+  createMonthlyEnrollmentWithInvoice,
   createEnrollmentWithInvoice,
   invoiceFinancials,
+  stopMonthlyEnrollment,
   updateEnrollmentWithInvoice,
 } from "@/lib/finance";
-import { dateStr, fromMinor, money, today, toMinor, WEEKDAYS } from "@/lib/format";
+import { dateStr, fromMinor, localMonthKey, money, today, toMinor, WEEKDAYS } from "@/lib/format";
 import type { Enrollment, Klass } from "@/lib/types";
 import { usePagination } from "@/hooks/use-pagination";
 
@@ -43,6 +45,8 @@ const EMPTY_ENROLL = {
   discount: "0",
   registration_fee: "0",
   reason: "",
+  discount_preset_id: "",
+  start_period: localMonthKey(),
 };
 
 function ClassesPage() {
@@ -52,6 +56,8 @@ function ClassesPage() {
   const [form, setForm] = useState(EMPTY);
   const [slots, setSlots] = useState<Klass["schedule"]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [classQuery, setClassQuery] = useState("");
+  const [classStatus, setClassStatus] = useState("");
 
   const [enrollFor, setEnrollFor] = useState<Klass | null>(null);
   const [enrollForm, setEnrollForm] = useState(EMPTY_ENROLL);
@@ -73,7 +79,26 @@ function ClassesPage() {
     return m;
   }, [db]);
 
-  const classes = useMemo(() => (db ? db.classes.slice() : []), [db]);
+  const classes = useMemo(() => {
+    if (!db) return [];
+    const term = classQuery.trim().toLowerCase();
+    const courseById = new Map(db.courses.map((item) => [item.id, item.name.toLowerCase()]));
+    const teacherById = new Map(db.employees.map((item) => [item.id, item.full_name.toLowerCase()]));
+    const studentById = new Map(db.students.map((item) => [item.id, item.full_name.toLowerCase()]));
+    const studentNamesByClass = new Map<string, string[]>();
+    for (const enrollment of db.enrollments) {
+      if (enrollment.status === "cancelled") continue;
+      const name = studentById.get(enrollment.student_id);
+      if (!name) continue;
+      studentNamesByClass.set(enrollment.class_id, [...(studentNamesByClass.get(enrollment.class_id) ?? []), name]);
+    }
+    return db.classes.filter((klass) => {
+      if (classStatus && klass.status !== classStatus) return false;
+      if (!term) return true;
+      const values = [klass.name.toLowerCase(), courseById.get(klass.course_id) ?? "", klass.teacher_id ? teacherById.get(klass.teacher_id) ?? "" : "", ...(studentNamesByClass.get(klass.id) ?? [])];
+      return values.some((value) => value.includes(term));
+    });
+  }, [db, classQuery, classStatus]);
   const registrants = useMemo(() => {
     if (!db || !registrantsFor) return [];
     return db.enrollments
@@ -122,7 +147,7 @@ function ClassesPage() {
 
   function save() {
     if (!form.name.trim()) return setError("اسم الصف إلزامي");
-    if (!form.course_id) return setError("اختر الدورة");
+    if (!form.course_id) return setError("اختر العام الدراسي");
     const payload = {
       name: form.name.trim(),
       course_id: form.course_id,
@@ -152,6 +177,8 @@ function ClassesPage() {
       discount: "0",
       registration_fee: "0",
       reason: "",
+      discount_preset_id: "",
+      start_period: localMonthKey(),
     });
     setEnrollError(null);
   }
@@ -176,25 +203,23 @@ function ClassesPage() {
     const used = counts.get(enrollFor.id) ?? 0;
     if (enrollFor.capacity > 0 && used >= enrollFor.capacity) return setEnrollError("الصف مكتمل العدد");
 
-    const { price, discount, installments } = buildInstallments(
-      enrollForm.price,
-      enrollForm.discount,
-    );
+    const price = toMinor(enrollForm.price);
+    const discount = toMinor(enrollForm.discount);
     const registrationFee = toMinor(enrollForm.registration_fee);
-    const reasonText = enrollForm.reason.trim();
-    const feeNote = registrationFee > 0 ? ` (رسوم تسجيل ${money(registrationFee, cur)})` : "";
-    const finalReason = reasonText ? `${reasonText}${feeNote}` : feeNote.trim() || "تسجيل جديد";
+    const preset = currentDb.settings.discount_presets.find((item) => item.id === enrollForm.discount_preset_id && item.active);
+    const discountTitle = preset?.title ?? enrollForm.reason.trim();
 
     try {
-      createEnrollmentWithInvoice(
+      createMonthlyEnrollmentWithInvoice(
         {
           student_id: enrollForm.student_id,
           class_id: enrollFor.id,
-          price,
+          monthly_price: price,
           discount,
+          discount_preset_id: preset?.id ?? null,
+          discount_title: discountTitle,
           registration_fee: registrationFee,
-          discount_reason: finalReason,
-          installments,
+          start_period: enrollForm.start_period,
         },
         actor,
       );
@@ -217,6 +242,8 @@ function ClassesPage() {
       discount: fromMinor(enrollment.discount_snapshot),
       registration_fee: fromMinor(registration?.amount ?? 0),
       reason: enrollment.discount_reason || "",
+      discount_preset_id: enrollment.discount_preset_id ?? "",
+      start_period: enrollment.billing_start_period ?? localMonthKey(),
     });
     setEditEnrollError(null);
   }
@@ -256,7 +283,11 @@ function ClassesPage() {
   function submitCancelEnrollment() {
     if (!cancelEnrollment) return;
     try {
-      cancelEnrollmentWithInvoice(cancelEnrollment.id, actor);
+      if (cancelEnrollment.billing_mode === "monthly") {
+        stopMonthlyEnrollment(cancelEnrollment.id, localMonthKey(), actor);
+      } else {
+        cancelEnrollmentWithInvoice(cancelEnrollment.id, actor);
+      }
       setCancelEnrollment(null);
       setCancelError(null);
     } catch (e) {
@@ -267,14 +298,21 @@ function ClassesPage() {
   return (
     <div>
       <PageHeader
-        title="الصفوف والجداول"
-        subtitle={`${currentDb.classes.length} صف`}
+        title="الصفوف والتسجيل"
+        subtitle={`${classes.length} من ${currentDb.classes.length} صف`}
         actions={canEdit ? <Button onClick={openNew}>+ صف جديد</Button> : null}
       />
 
+      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
+        <Input value={classQuery} onChange={(e) => setClassQuery(e.target.value)} placeholder="بحث بالصف أو العام الدراسي أو المدرّس أو اسم طالب" />
+        <Select value={classStatus} onChange={(e) => setClassStatus(e.target.value)}>
+          <option value="">كل الحالات</option><option value="planned">مخطط</option><option value="running">جارٍ</option><option value="finished">منتهٍ</option>
+        </Select>
+      </div>
+
       {classes.length ? (
         <>
-        <Table head={["الصف", "الدورة", "المدرّس", "الفصل", "الفترة", "المسجّلون", "الحالة", ""]}>
+        <Table head={["الصف", "العام الدراسي", "المدرّس", "الفصل", "الفترة", "المسجّلون", "الحالة", ""]}>
           {classPagination.rows.map((k) => (
             <tr key={k.id}>
               <Td className="font-semibold">{k.name}</Td>
@@ -340,7 +378,7 @@ function ClassesPage() {
           <Field label="اسم الصف">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
-          <Field label="الدورة">
+          <Field label="العام الدراسي">
             <Select
               value={form.course_id}
               onChange={(e) => setForm({ ...form, course_id: e.target.value })}
@@ -354,7 +392,7 @@ function ClassesPage() {
               ))}
             </Select>
             {editing && currentDb.enrollments.some((enrollment) => enrollment.class_id === editing.id) ? (
-              <span className="block text-xs text-muted-foreground">لا يمكن تغيير الدورة لأن الصف يحتوي على سجلات تسجيل.</span>
+              <span className="block text-xs text-muted-foreground">لا يمكن تغيير العام الدراسي لأن الصف يحتوي على سجلات تسجيل.</span>
             ) : null}
           </Field>
           <Field label="المدرّس">
@@ -463,6 +501,11 @@ function ClassesPage() {
 
       <Modal open={!!enrollFor} title={`تسجيل طالب — ${enrollFor?.name ?? ""}`} onClose={() => setEnrollFor(null)}>
         <div className="space-y-3">
+          <div className="rounded-xl border bg-muted/30 p-3 text-sm">
+            <p><b>العام الدراسي:</b> {enrollFor ? courseName(enrollFor.course_id) : "—"}</p>
+            <p><b>الصف:</b> {enrollFor?.name ?? "—"}</p>
+            <p><b>المدرّس:</b> {enrollFor ? teacherName(enrollFor.teacher_id) : "—"}</p>
+          </div>
           <Field label="الطالب">
             <Select value={enrollForm.student_id} onChange={(e) => setEnrollForm({ ...enrollForm, student_id: e.target.value })}>
               <option value="">— اختر —</option>
@@ -476,11 +519,28 @@ function ClassesPage() {
             </Select>
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={`سعر الدورة (${cur})`}>
+            <Field label={`القسط الشهري الأساسي (${cur})`}>
               <Input value={enrollForm.price} onChange={(e) => setEnrollForm({ ...enrollForm, price: e.target.value })} />
             </Field>
-            <Field label={`الخصم (${cur})`}>
-              <Input value={enrollForm.discount} onChange={(e) => setEnrollForm({ ...enrollForm, discount: e.target.value })} />
+            <Field label="الخصم المحدد">
+              <Select value={enrollForm.discount_preset_id} onChange={(e) => {
+                const id = e.target.value;
+                const preset = currentDb.settings.discount_presets.find((item) => item.id === id && item.active);
+                setEnrollForm({ ...enrollForm, discount_preset_id: id, discount: preset ? fromMinor(preset.amount) : "0", reason: preset?.title ?? "" });
+              }}>
+                <option value="">بدون خصم جاهز</option>
+                {currentDb.settings.discount_presets.filter((item) => item.active).map((item) => (
+                  <option key={item.id} value={item.id}>{item.title} — {money(item.amount, cur)}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={`قيمة الخصم (${cur})`}>
+              <Input value={enrollForm.discount} disabled={!!enrollForm.discount_preset_id} onChange={(e) => setEnrollForm({ ...enrollForm, discount: e.target.value })} />
+            </Field>
+            <Field label="بداية الاستحقاق الشهري">
+              <Input type="month" value={enrollForm.start_period} onChange={(e) => setEnrollForm({ ...enrollForm, start_period: e.target.value })} />
             </Field>
           </div>
           <Field label={`رسوم التسجيل (${cur})`} hint="تُضاف إلى إجمالي المستحق ولا تُعتبر مقبوضة إلا عند إصدار سند قبض">
@@ -491,18 +551,21 @@ function ClassesPage() {
               onChange={(e) => setEnrollForm({ ...enrollForm, registration_fee: e.target.value })}
             />
           </Field>
-          <Field label="سبب الخصم / ملاحظة">
-            <Input value={enrollForm.reason} onChange={(e) => setEnrollForm({ ...enrollForm, reason: e.target.value })} />
-          </Field>
-          <p className="rounded-lg bg-muted p-3 text-sm">
-            إجمالي المستحق: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount) + toMinor(enrollForm.registration_fee)), cur)}</b>
-          </p>
+          {!enrollForm.discount_preset_id ? (
+            <Field label="عنوان الخصم اليدوي / ملاحظة">
+              <Input value={enrollForm.reason} onChange={(e) => setEnrollForm({ ...enrollForm, reason: e.target.value })} />
+            </Field>
+          ) : null}
+          <div className="rounded-lg bg-muted p-3 text-sm">
+            <p>القسط الشهري بعد الخصم: <b>{money(Math.max(0, toMinor(enrollForm.price) - toMinor(enrollForm.discount)), cur)}</b></p>
+            <p className="mt-1 text-xs text-muted-foreground">رسوم التسجيل لمرة واحدة: {money(toMinor(enrollForm.registration_fee), cur)}</p>
+          </div>
           {enrollError ? <p className="text-sm font-semibold text-destructive">{enrollError}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setEnrollFor(null)}>
               إلغاء
             </Button>
-            <Button onClick={submitEnroll}>تسجيل وإصدار فاتورة</Button>
+            <Button onClick={submitEnroll}>تسجيل وبدء الاستحقاق الشهري</Button>
           </div>
         </div>
       </Modal>
@@ -540,9 +603,11 @@ function ClassesPage() {
                   <Td>
                     {canManageEnrollments && enrollment.status === "active" ? (
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
-                          تعديل التسجيل
-                        </Button>
+                        {enrollment.billing_mode !== "monthly" ? (
+                          <Button variant="ghost" onClick={() => openEnrollmentEdit(enrollment)}>
+                            تعديل التسجيل
+                          </Button>
+                        ) : null}
                         <Button
                           variant="ghost"
                           onClick={() => {
@@ -550,7 +615,7 @@ function ClassesPage() {
                             setCancelError(null);
                           }}
                         >
-                          إلغاء التسجيل
+                          {enrollment.billing_mode === "monthly" ? "إيقاف التسجيل" : "إلغاء التسجيل"}
                         </Button>
                       </div>
                     ) : null}
@@ -622,10 +687,10 @@ function ClassesPage() {
       <Modal open={!!cancelEnrollment} title="إلغاء تسجيل الطالب" onClose={() => setCancelEnrollment(null)}>
         <div className="space-y-3">
           <p className="text-sm">
-            هل تريد إلغاء تسجيل <b>{currentDb.students.find((s) => s.id === cancelEnrollment?.student_id)?.full_name || "الطالب"}</b>؟
+            {cancelEnrollment?.billing_mode === "monthly" ? "هل تريد إيقاف الاستحقاقات الشهرية للطالب " : "هل تريد إلغاء تسجيل "}<b>{currentDb.students.find((s) => s.id === cancelEnrollment?.student_id)?.full_name || "الطالب"}</b>؟
           </p>
           <p className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-            إذا كان على التسجيل سند قبض فعلي، سيمنع النظام الإلغاء إلى أن يتم إلغاء السند المالي أولًا.
+            {cancelEnrollment?.billing_mode === "monthly" ? "سيبقى كل الدين والتاريخ المالي السابق محفوظاً، وسيتوقف فقط توليد الأشهر المستقبلية بعد الشهر الحالي." : "إذا كان على التسجيل سند قبض فعلي، سيمنع النظام الإلغاء إلى أن يتم إلغاء السند المالي أولًا."}
           </p>
           {cancelError ? <p className="text-sm font-semibold text-destructive">{cancelError}</p> : null}
           <div className="flex justify-end gap-2">
@@ -633,7 +698,7 @@ function ClassesPage() {
               تراجع
             </Button>
             <Button variant="danger" onClick={submitCancelEnrollment}>
-              تأكيد إلغاء التسجيل
+              {cancelEnrollment?.billing_mode === "monthly" ? "تأكيد إيقاف التسجيل" : "تأكيد إلغاء التسجيل"}
             </Button>
           </div>
         </div>
