@@ -595,15 +595,27 @@ export function voidPayment(paymentId: ID, reason: string, actor: Actor): void {
   });
 }
 
-export function voidExpense(expenseId: ID, actor: Actor, reason = "إلغاء المصروف"): void {
+export function voidExpense(expenseId: ID, actor: Actor, reason: string): void {
+  if (!reason.trim()) throw new Error("سبب الإلغاء إلزامي");
   transact((db) => {
     const expense = db.expenses.find((item) => item.id === expenseId);
     if (!expense) throw new Error("المصروف غير موجود");
     if (expense.is_void) throw new Error("المصروف ملغى مسبقًا");
-    if (!reason.trim()) throw new Error("سبب الإلغاء إلزامي");
     expense.is_void = true;
     expense.updated_at = new Date().toISOString();
     audit(db, actor, "expenses", expense.id, "void", `${reason.trim()} — ${expense.category} بقيمة ${expense.amount / 100}`);
+  });
+}
+
+export function voidIncome(incomeId: ID, actor: Actor, reason: string): void {
+  if (!reason.trim()) throw new Error("سبب الإلغاء إلزامي");
+  transact((db) => {
+    const income = db.incomes.find((item) => item.id === incomeId);
+    if (!income) throw new Error("المدخول غير موجود");
+    if (income.is_void) throw new Error("المدخول ملغى مسبقًا");
+    income.is_void = true;
+    income.updated_at = new Date().toISOString();
+    audit(db, actor, "incomes", income.id, "void", `${reason.trim()} — ${income.source} بقيمة ${income.amount / 100}`);
   });
 }
 

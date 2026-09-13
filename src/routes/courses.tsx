@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td } from "@/components/ui-kit";
@@ -27,6 +27,17 @@ function CoursesPage() {
   const [editing, setEditing] = useState<Course | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const rows = useMemo(() => {
+    if (!db) return [];
+    const term = q.trim().toLowerCase();
+    return db.courses.filter((course) => {
+      if (status === "active" && !course.active) return false;
+      if (status === "inactive" && course.active) return false;
+      return !term || course.name.toLowerCase().includes(term) || course.code.toLowerCase().includes(term);
+    });
+  }, [db, q, status]);
 
   if (!db) return null;
   if (!allowed("courses.view")) return <Denied />;
@@ -56,7 +67,7 @@ function CoursesPage() {
     <div>
       <PageHeader
         title="الأعوام الدراسية"
-        subtitle={`${db.courses.length} عام دراسي`}
+        subtitle={`${rows.length} من ${db.courses.length} عام دراسي`}
         actions={
           canEdit ? (
             <Button
@@ -73,9 +84,16 @@ function CoursesPage() {
         }
       />
 
-      {db.courses.length ? (
+      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث باسم العام الدراسي أو الرمز" />
+        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">كل الحالات</option><option value="active">مفعّلة</option><option value="inactive">موقوفة</option>
+        </Select>
+      </div>
+
+      {rows.length ? (
         <Table head={["العام الدراسي", "الرمز", "القسط الشهري الافتراضي", "الحالة", ""]}>
-          {db.courses.map((c) => (
+          {rows.map((c) => (
             <tr key={c.id}>
               <Td className="font-semibold">{c.name}</Td>
               <Td>{c.code || "—"}</Td>
@@ -109,7 +127,7 @@ function CoursesPage() {
           ))}
         </Table>
       ) : (
-        <Empty text="لم تُضف أعوام دراسية بعد." />
+        <Empty text="لا توجد أعوام دراسية مطابقة." />
       )}
 
       <Modal open={open} title={editing ? "تعديل عام دراسي" : "عام دراسي جديد"} onClose={() => setOpen(false)}>

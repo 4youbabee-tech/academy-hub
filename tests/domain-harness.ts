@@ -10,6 +10,7 @@ import {
   recordPayment,
   studentBalance,
   voidExpense,
+  voidIncome,
   voidPayment,
 } from "../src/lib/finance";
 import { generatePayroll, payPayrollItem, recordAdvance } from "../src/lib/payroll";
@@ -162,9 +163,18 @@ assert.equal(profitAndLoss(current, "2026-08-01", payrollAccountingDate).payroll
 const expenseId = insert("expenses", {
   category: "كهرباء", amount: 5_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
 }, ownerActor, "مصروف");
-voidExpense(expenseId, ownerActor);
+assert.throws(() => voidExpense(expenseId, ownerActor, ""), /سبب الإلغاء إلزامي/);
+voidExpense(expenseId, ownerActor, "تكرار إدخال");
 current = snapshot()!;
 assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").expenses, 0);
+
+const incomeId = insert("incomes", {
+  source: "دخل تجريبي", amount: 7_000, date: "2026-08-10", note: "اختبار", user_id: ownerActor.id, is_void: false,
+}, ownerActor, "مدخول");
+assert.throws(() => voidIncome(incomeId, ownerActor, ""), /سبب الإلغاء إلزامي/);
+voidIncome(incomeId, ownerActor, "قيد خاطئ");
+current = snapshot()!;
+assert.equal(profitAndLoss(current, "2026-08-01", "2026-08-31").otherIncome, 0);
 
 console.log("Academy Hub domain scenarios: PASS");
 process.exit(0);

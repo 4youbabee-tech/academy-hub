@@ -26,12 +26,20 @@ function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [role, setRole] = useState("");
+  const [status, setStatus] = useState("");
 
-  const rows = useMemo(
-    () => (db ? db.users.slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar")) : []),
-    [db],
-  );
-  const pagination = usePagination(rows, "users");
+  const rows = useMemo(() => {
+    if (!db) return [];
+    const term = q.trim().toLowerCase();
+    return db.users
+      .filter((user) => !role || user.role === role)
+      .filter((user) => status === "active" ? user.is_active : status === "inactive" ? !user.is_active : true)
+      .filter((user) => !term || user.username.toLowerCase().includes(term) || user.full_name.toLowerCase().includes(term))
+      .slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar"));
+  }, [db, q, role, status]);
+  const pagination = usePagination(rows, `${q}|${role}|${status}`);
 
   if (!db) return null;
   if (!allowed("users.view")) return <Denied />;
@@ -120,9 +128,20 @@ function UsersPage() {
     <div>
       <PageHeader
         title="المستخدمون"
-        subtitle={`${currentDb.users.length} مستخدم`}
+        subtitle={`${rows.length} من ${currentDb.users.length} مستخدم`}
         actions={canCreate ? <Button onClick={startAdd}>+ مستخدم جديد</Button> : null}
       />
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالاسم أو اسم المستخدم" />
+        <Select value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="">كل الأدوار</option>
+          {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </Select>
+        <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">كل الحالات</option><option value="active">نشط</option><option value="inactive">معطّل</option>
+        </Select>
+      </div>
 
       {rows.length === 0 ? (
         <Empty text="لا يوجد مستخدمون." />
