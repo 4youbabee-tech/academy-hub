@@ -30,7 +30,8 @@ jobs:
         run: |
           shopt -s nullglob
           patches=(.upgrade-patches/*.patch)
-          if [ ${#patches[@]} -eq 0 ]; then
+          scripts=(.upgrade-patches/*.mjs)
+          if [ ${#patches[@]} -eq 0 ] && [ ${#scripts[@]} -eq 0 ]; then
             echo "No upgrade patches found."
             exit 0
           fi
@@ -39,7 +40,11 @@ jobs:
             git apply --check "$patch"
             git apply "$patch"
           done
-          rm -f .upgrade-patches/*.patch
+          for script in "${scripts[@]}"; do
+            echo "Running $script"
+            node "$script"
+          done
+          rm -f .upgrade-patches/*.patch .upgrade-patches/*.mjs
       - name: Install exact dependencies
         run: npm ci
       - name: Verify patched source
