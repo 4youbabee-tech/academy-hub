@@ -20,7 +20,9 @@ import {
 const actor = { id: "owner-monthly", name: "مالك الاختبار" };
 const currentPeriod = today().slice(0, 7);
 function nextPeriod(period: string): string {
-  const [year, month] = period.split("-").map(Number);
+  const parts = period.split("-");
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
   return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
@@ -119,7 +121,6 @@ assert.equal(payrollPaid(current, payroll.id), 15_000);
 assert.equal(payrollRemaining(current, payroll.id), 15_000);
 assert.equal(profitAndLoss(current, today(), today()).payroll, 25_000, "cash payroll = advance + active salary payments");
 
-// Creating another month's payroll must not allocate the same unsettled-but-reserved advance again.
 generatePayroll(next, actor);
 current = snapshot()!;
 const nextPayroll = current.payroll_items.find((item) => item.employee_id === "employee-monthly" && item.period === next)!;
