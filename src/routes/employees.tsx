@@ -44,7 +44,7 @@ function EmployeesPage() {
   const { db, actor, allowed } = useApp();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ full_name: "", kind: "teacher" as Employee["kind"], job_title: "", phone: "", salary: "", hired_at: today() });
+  const [form, setForm] = useState({ full_name: "", kind: "teacher" as Employee["kind"], job_title: "", phone: "", salary: "", hired_at: today(), ended_at: "", active: true });
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState(monthNow());
   const [advFor, setAdvFor] = useState<string | null>(null);
@@ -79,6 +79,10 @@ function EmployeesPage() {
     if (!form.full_name.trim()) return setError("الاسم إلزامي");
     const base_salary = toMinor(form.salary);
     if (base_salary < 0) return setError("الراتب الأساسي لا يمكن أن يكون سالبًا");
+    if (!form.hired_at) return setError("تاريخ بدء العمل إلزامي");
+    if (!form.active && !form.ended_at) return setError("تاريخ انتهاء العمل إلزامي عند إيقاف الموظف");
+    if (form.ended_at && form.ended_at < form.hired_at) return setError("تاريخ انتهاء العمل لا يمكن أن يسبق تاريخ البداية");
+    const endedAt = form.active ? null : form.ended_at;
     if (editId) {
       const outstandingAdvances = currentDb.advances
         .filter((a) => a.employee_id === editId && !a.settled)
@@ -86,11 +90,11 @@ function EmployeesPage() {
       if (base_salary < outstandingAdvances) {
         return setError(`لا يمكن جعل الراتب أقل من السلف غير المسددة (${money(outstandingAdvances, cur)})`);
       }
-      update("employees", editId, { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, base_salary }, actor, `تعديل موظف ${form.full_name}`);
+      update("employees", editId, { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, ended_at: endedAt, base_salary, active: form.active }, actor, `تعديل موظف ${form.full_name}`);
     } else {
       insert(
         "employees",
-        { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, base_salary, active: true },
+        { full_name: form.full_name.trim(), kind: form.kind, job_title: form.job_title, phone: form.phone, hired_at: form.hired_at, ended_at: null, base_salary, active: true },
         actor,
         `موظف جديد ${form.full_name}`,
       );
@@ -222,7 +226,7 @@ function EmployeesPage() {
             <Button
               onClick={() => {
                 setEditId(null);
-                setForm({ full_name: "", kind: "teacher", job_title: "", phone: "", salary: "", hired_at: today() });
+                setForm({ full_name: "", kind: "teacher", job_title: "", phone: "", salary: "", hired_at: today(), ended_at: "", active: true });
                 setError(null);
                 setOpen(true);
               }}
@@ -245,7 +249,7 @@ function EmployeesPage() {
         <Empty text={employeeQ ? "لا يوجد موظفون مطابقون للبحث." : "لا يوجد موظفون."} />
       ) : (
         <>
-        <Table head={["الاسم", "النوع", "المسمى", "الهاتف", "الراتب", "الحالة", ""]}>
+        <Table head={["الاسم", "النوع", "المسمى", "الهاتف", "الراتب", "بداية العمل", "نهاية العمل", "الحالة", ""]}>
           {employeePagination.rows.map((e) => (
             <tr key={e.id}>
               <Td className="font-semibold">{e.full_name}</Td>
@@ -253,6 +257,8 @@ function EmployeesPage() {
               <Td>{e.job_title || "—"}</Td>
               <Td>{e.phone || "—"}</Td>
               <Td className="tabular-nums">{money(e.base_salary, cur)}</Td>
+              <Td>{dateStr(e.hired_at)}</Td>
+              <Td>{e.ended_at ? dateStr(e.ended_at) : "—"}</Td>
               <Td>{e.active ? <Badge tone="success">نشط</Badge> : <Badge>موقوف</Badge>}</Td>
               <Td className="whitespace-nowrap">
                 {canEdit ? (
@@ -261,7 +267,7 @@ function EmployeesPage() {
                       variant="ghost"
                       onClick={() => {
                         setEditId(e.id);
-                        setForm({ full_name: e.full_name, kind: e.kind, job_title: e.job_title, phone: e.phone, salary: fromMinor(e.base_salary), hired_at: e.hired_at });
+                        setForm({ full_name: e.full_name, kind: e.kind, job_title: e.job_title, phone: e.phone, salary: fromMinor(e.base_salary), hired_at: e.hired_at, ended_at: e.ended_at ?? "", active: e.active });
                         setOpen(true);
                       }}
                     >
@@ -276,9 +282,6 @@ function EmployeesPage() {
                       }}
                     >
                       سلفة
-                    </Button>
-                    <Button variant="ghost" onClick={() => update("employees", e.id, { active: !e.active }, actor, "تغيير حالة موظف")}>
-                      {e.active ? "إيقاف" : "تفعيل"}
                     </Button>
                   </>
                 ) : null}
@@ -382,6 +385,19 @@ function EmployeesPage() {
             <Field label="الراتب الأساسي">
               <Input type="number" min="0" step="0.01" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} />
             </Field>
+            <Field label="تاريخ بدء العمل">
+              <Input type="date" value={form.hired_at} onChange={(e) => setForm({ ...form, hired_at: e.target.value })} />
+            </Field>
+            <Field label="الحالة">
+              <Select value={form.active ? "active" : "inactive"} onChange={(e) => setForm({ ...form, active: e.target.value === "active", ended_at: e.target.value === "active" ? "" : form.ended_at })}>
+                <option value="active">نشط</option><option value="inactive">منتهي / موقوف</option>
+              </Select>
+            </Field>
+            {!form.active ? (
+              <Field label="تاريخ انتهاء العمل">
+                <Input type="date" value={form.ended_at} onChange={(e) => setForm({ ...form, ended_at: e.target.value })} />
+              </Field>
+            ) : null}
           </div>
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">

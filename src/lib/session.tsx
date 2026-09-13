@@ -55,14 +55,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!userId) return;
-    const current = snapshot();
-    const activeUser = current?.users.find((item) => item.id === userId && item.is_active);
-    if (!activeUser) return;
-    try {
-      runMonthlyGeneration(undefined, { id: activeUser.id, name: activeUser.full_name });
-    } catch (error) {
-      console.error("تعذر تشغيل الدورة الشهرية التلقائية", error);
-    }
+    const runCycle = () => {
+      const current = snapshot();
+      const activeUser = current?.users.find((item) => item.id === userId && item.is_active);
+      if (!activeUser) return;
+      try {
+        runMonthlyGeneration(undefined, { id: activeUser.id, name: activeUser.full_name });
+      } catch (error) {
+        console.error("تعذر تشغيل الدورة الشهرية التلقائية", error);
+      }
+    };
+    runCycle();
+    const interval = window.setInterval(runCycle, 60 * 60 * 1000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") runCycle();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [userId]);
 
   const login = useCallback(async (username: string, password: string) => {

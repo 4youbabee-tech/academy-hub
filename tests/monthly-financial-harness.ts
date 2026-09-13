@@ -29,6 +29,7 @@ function nextPeriod(period: string): string {
 
 const next = nextPeriod(currentPeriod);
 const next2 = nextPeriod(next);
+const next3 = nextPeriod(next2);
 const db = emptyDb();
 db.users.push({
   ...baseFields(), id: actor.id, username: "owner-monthly", full_name: actor.name,
@@ -138,6 +139,14 @@ assert.equal(current.installments.filter((item) => item.kind === "monthly" && it
 assert.equal(current.installments.filter((item) => item.kind === "monthly" && item.period === next2).length, 1, "catch-up must create the missing later month");
 assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next).length, 1);
 assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next2).length, 1, "payroll catch-up must create missing month once");
+
+const employeeAfterCatchup = current.employees.find((item) => item.id === "employee-monthly")!;
+employeeAfterCatchup.active = false;
+employeeAfterCatchup.ended_at = `${next2}-15`;
+replaceDb(current);
+runMonthlyGeneration(next3, actor);
+current = snapshot()!;
+assert.equal(current.payroll_items.filter((item) => item.employee_id === "employee-monthly" && item.period === next3).length, 0, "ended employee must not receive future payroll");
 
 console.log("Academy Hub monthly billing + partial payroll scenarios: PASS");
 process.exit(0);
