@@ -4,6 +4,7 @@ import { useApp } from "@/lib/session";
 import {
   restoreMonthlyEnrollmentPeriod,
   skipMonthlyEnrollmentPeriod,
+  stopMonthlyEnrollment,
   studentMonthlyLedger,
 } from "@/lib/finance";
 import { localMonthKey, money } from "@/lib/format";
@@ -40,6 +41,7 @@ function numericPeriod(period: string): string {
 export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
   const { db, actor, allowed } = useApp();
   const [action, setAction] = useState<PeriodAction | null>(null);
+  const [stopFor, setStopFor] = useState<Enrollment | null>(null);
   const [reason, setReason] = useState("لم يدرس الطالب هذا الشهر");
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +96,17 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
     }
   }
 
+  function confirmStop() {
+    if (!stopFor) return;
+    try {
+      stopMonthlyEnrollment(stopFor.id, currentPeriod, actor);
+      setStopFor(null);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   return (
     <>
       <h2 className="mb-2 mt-6 text-sm font-bold">بطاقة الطالب الشهرية — الفعلي والمتوقع</h2>
@@ -114,6 +127,7 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
           });
           const projectedTotal = rows.reduce((sum, row) => sum + (row.actual?.amount ?? row.expectedAmount), 0);
           const actualDue = rows.reduce((sum, row) => sum + (row.actual?.due ?? 0), 0);
+          const canManageEnrollment = allowed("enrollments.update");
 
           return (
             <Panel key={enrollment.id}>
@@ -123,13 +137,27 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
                   <p className="mt-1 text-xs text-muted-foreground">
                     القسط الشهري: {money(enrollment.monthly_price_snapshot ?? 0, cur)} — بداية التسجيل: {numericPeriod(start)}
                   </p>
+                  {enrollment.billing_end_period ? (
+                    <p className="mt-1 text-xs text-muted-foreground">آخر شهر في التسجيل: {numericPeriod(enrollment.billing_end_period)}</p>
+                  ) : null}
                 </div>
-                <div className="flex flex-wrap gap-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
                   <Badge tone={enrollment.status === "active" ? "success" : "muted"}>
                     {enrollment.status === "active" ? "التسجيل جارٍ" : "التسجيل متوقف"}
                   </Badge>
                   <Badge tone="primary">المتوقع 12 شهر: {money(projectedTotal, cur)}</Badge>
                   <Badge tone={actualDue > 0 ? "danger" : "success"}>المتبقي الفعلي: {money(actualDue, cur)}</Badge>
+                  {canManageEnrollment && enrollment.status === "active" ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setStopFor(enrollment);
+                        setError(null);
+                      }}
+                    >
+                      إيقاف التسجيل
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
@@ -148,7 +176,7 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
                   const paid = row.actual?.paid ?? 0;
                   const due = row.actual?.due ?? (row.future ? 0 : row.expectedAmount);
                   const hasPayment = Boolean(row.actual && row.actual.paid > 0);
-                  const canManage = allowed("enrollments.update") && !row.isStopped;
+                  const canManage = canManageEnrollment && !row.isStopped;
 
                   return (
                     <tr key={`${enrollment.id}-${row.period}`}>
@@ -199,6 +227,24 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setAction(null)}>تراجع</Button>
               <Button onClick={confirmAction}>{action.mode === "restore" ? "إعادة الشهر" : "تأكيد التخطي"}</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!stopFor} title="إيقاف تسجيل الطالب" onClose={() => setStopFor(null)}>
+        {stopFor ? (
+          <div className="space-y-3">
+            <p className="rounded-lg bg-muted p-3 text-sm">
+              سيتوقف توليد أي استحقاق جديد بعد شهر <b>{numericPeriod(currentPeriod)}</b>. كل الفواتير والدفعات والبواقي السابقة ستبقى محفوظة كما هي.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              إذا كان الطالب لم يدرس الشهر الحالي، استخدم «تخطي الشهر» أولًا ثم أوقف التسجيل.
+            </p>
+            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setStopFor(null)}>تراجع</Button>
+              <Button variant="danger" onClick={confirmStop}>تأكيد الإيقاف</Button>
             </div>
           </div>
         ) : null}
