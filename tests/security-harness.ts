@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { emptyDb, initializeOwner, replaceDb, snapshot, verifyPassword } from "../src/lib/db";
 
+Object.assign(globalThis, {
+  window: {
+    academyDesktop: {
+      database: {
+        load: async () => undefined,
+        save: async () => ({ saved: true }),
+        getPage: async () => ({ rows: [], total: 0 }),
+      },
+    },
+  },
+});
+
 replaceDb(emptyDb());
 assert.equal(snapshot()?.users.length, 0, "fresh database must not contain default credentials");
 
