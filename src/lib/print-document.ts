@@ -44,8 +44,8 @@ function buildWebPreview(html: string): string {
 
   const toolbar = `
 <div id="academy-print-preview-toolbar">
-  <button class="primary" type="button" onclick="window.print()">🖨️ طباعة / حفظ PDF</button>
-  <button class="secondary" type="button" onclick="window.close()">إغلاق المعاينة</button>
+  <button id="academy-print-preview-print" class="primary" type="button">🖨️ طباعة / حفظ PDF</button>
+  <button id="academy-print-preview-close" class="secondary" type="button">إغلاق المعاينة</button>
   <div class="hint">راجع المستند أولاً، ثم اضغط «طباعة / حفظ PDF». على الهاتف يمكنك اختيار Save as PDF من نافذة النظام.</div>
 </div>`;
 
@@ -70,6 +70,14 @@ function openWebPrintPreview(html: string): void {
     preview.document.open();
     preview.document.write(buildWebPreview(html));
     preview.document.close();
+
+    const printButton = preview.document.getElementById("academy-print-preview-print");
+    const closeButton = preview.document.getElementById("academy-print-preview-close");
+    printButton?.addEventListener("click", () => {
+      preview.focus();
+      preview.print();
+    });
+    closeButton?.addEventListener("click", () => preview.close());
     preview.focus();
   } catch (error) {
     try {
