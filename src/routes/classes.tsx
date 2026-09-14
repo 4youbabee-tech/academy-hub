@@ -30,6 +30,12 @@ export const Route = createFileRoute("/classes")({
   component: ClassesPage,
 });
 
+function defaultClassEndDate() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 const EMPTY = {
   name: "",
   course_id: "",
@@ -37,8 +43,8 @@ const EMPTY = {
   term: "",
   capacity: "20",
   start_date: today(),
-  end_date: today(),
-  status: "planned" as Klass["status"],
+  end_date: defaultClassEndDate(),
+  status: "running" as Klass["status"],
 };
 
 const EMPTY_ENROLL = {
@@ -372,7 +378,7 @@ function ClassesPage() {
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
         <Input value={classQuery} onChange={(e) => setClassQuery(e.target.value)} placeholder="بحث بالصف أو العام الدراسي أو المدرّس أو اسم طالب" />
         <Select value={classStatus} onChange={(e) => setClassStatus(e.target.value)}>
-          <option value="">كل الحالات</option><option value="planned">مخطط</option><option value="running">جارٍ</option><option value="finished">منتهٍ</option>
+          <option value="">كل الحالات</option><option value="running">جارٍ</option><option value="finished">منتهٍ</option>
         </Select>
       </div>
 
@@ -394,7 +400,7 @@ function ClassesPage() {
               </Td>
               <Td>
                 <Badge tone={k.status === "running" ? "success" : k.status === "finished" ? "muted" : "primary"}>
-                  {k.status === "running" ? "جارٍ" : k.status === "finished" ? "منتهٍ" : "مخطط"}
+                  {k.status === "finished" ? "منتهٍ" : "جارٍ"}
                 </Badge>
               </Td>
               <Td>
@@ -481,7 +487,6 @@ function ClassesPage() {
           </Field>
           <Field label="الحالة">
             <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Klass["status"] })}>
-              <option value="planned">مخطط</option>
               <option value="running">جارٍ</option>
               <option value="finished">منتهٍ</option>
             </Select>

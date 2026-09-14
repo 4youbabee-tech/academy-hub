@@ -19,7 +19,8 @@ export const Route = createFileRoute("/courses")({
   component: CoursesPage,
 });
 
-const EMPTY = { name: "", code: "", level: "", hours: "0", price: "0", active: true };
+const academicYearNow = () => { const year = new Date().getFullYear(); return `${year}-${year + 1}`; };
+const EMPTY = { name: academicYearNow(), code: "", level: "", hours: "0", price: "0", active: true };
 
 function CoursesPage() {
   const { db, actor, allowed } = useApp();
@@ -35,7 +36,7 @@ function CoursesPage() {
     return db.courses.filter((course) => {
       if (status === "active" && !course.active) return false;
       if (status === "inactive" && course.active) return false;
-      return !term || course.name.toLowerCase().includes(term) || course.code.toLowerCase().includes(term);
+      return !term || course.name.toLowerCase().includes(term);
     });
   }, [db, q, status]);
 
@@ -66,7 +67,7 @@ function CoursesPage() {
   return (
     <div>
       <PageHeader
-        title="الأعوام الدراسية"
+        title="العام الدراسي"
         subtitle={`${rows.length} من ${db.courses.length} عام دراسي`}
         actions={
           canEdit ? (
@@ -85,18 +86,17 @@ function CoursesPage() {
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث باسم العام الدراسي أو الرمز" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث باسم العام الدراسي" />
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">كل الحالات</option><option value="active">مفعّلة</option><option value="inactive">موقوفة</option>
         </Select>
       </div>
 
       {rows.length ? (
-        <Table head={["العام الدراسي", "الرمز", "القسط الشهري الافتراضي", "الحالة", ""]}>
+        <Table head={["العام الدراسي", "القسط الشهري الافتراضي", "الحالة", ""]}>
           {rows.map((c) => (
             <tr key={c.id}>
               <Td className="font-semibold">{c.name}</Td>
-              <Td>{c.code || "—"}</Td>
               <Td className="tabular-nums">{money(c.default_price, cur)}</Td>
               <Td>
                 <Badge tone={c.active ? "success" : "muted"}>{c.active ? "مفعّلة" : "موقوفة"}</Badge>
@@ -134,9 +134,6 @@ function CoursesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="اسم العام الدراسي">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </Field>
-          <Field label="الرمز">
-            <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
           </Field>
           <Field label={`القسط الشهري الافتراضي (${cur})`}>
             <Input type="number" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />

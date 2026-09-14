@@ -130,7 +130,7 @@ function ReportsPage() {
             <Select value={type} onChange={(e) => setType(e.target.value as ReportType)} className="min-w-40">
               <option value="profit">الربح والخسارة</option>
               <option value="balances">أرصدة الطلاب</option>
-              <option value="monthly-status">مدفوع / غير مدفوع شهرياً</option>
+              <option value="monthly-status">حالة الدفع الشهرية</option>
             </Select>
           </Field>
           {type === "monthly-status" ? (
@@ -138,7 +138,7 @@ function ReportsPage() {
               <Field label="الشهر"><Input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} /></Field>
               <Field label="الحالة">
                 <Select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
-                  <option value="all">الكل</option><option value="paid">مدفوع</option><option value="partial">مدفوع جزئياً</option><option value="unpaid">غير مدفوع</option>
+                  <option value="all">الكل</option><option value="paid">مدفوع بالكامل</option><option value="partial">مدفوع جزئياً</option><option value="unpaid">غير مدفوع</option>
                 </Select>
               </Field>
               <Field label="بحث بالطالب"><Input value={studentQuery} onChange={(e) => setStudentQuery(e.target.value)} placeholder="الاسم أو الرمز" /></Field>
@@ -213,11 +213,11 @@ function ReportsPage() {
               <Table head={["الطالب", "الشهر", "المستحق", "المدفوع", "المتبقي", "متأخرات أقدم", "الحالة", ""]}>
                 {monthlyPagination.rows.map((row) => (
                   <tr key={row.student.id}>
-                    <Td className="font-semibold">{row.student.full_name}</Td><Td>{reportMonth}</Td>
+                    <Td className="font-semibold">{row.student.full_name}</Td><Td>{Number(reportMonth.slice(5, 7))}</Td>
                     <Td className="tabular-nums">{money(row.amount, cur)}</Td><Td className="tabular-nums text-emerald-700">{money(row.paid, cur)}</Td>
                     <Td className={row.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.due, cur)}</Td>
                     <Td className={row.priorDue > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.priorDue, cur)}</Td>
-                    <Td>{row.status === "paid" ? "مدفوع" : row.status === "partial" ? "جزئي" : "غير مدفوع"}</Td>
+                    <Td>{row.status === "paid" ? "مدفوع بالكامل" : row.status === "partial" ? "مدفوع جزئياً" : "غير مدفوع"}</Td>
                     <Td><Link to="/students/$id" params={{ id: row.student.id }} className="text-primary hover:underline">فتح البطاقة</Link></Td>
                   </tr>
                 ))}

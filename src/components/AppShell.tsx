@@ -17,7 +17,7 @@ const NAV = [
     group: "الأكاديمي",
     items: [
       { to: "/students", label: "الطلاب", perm: "students.view" },
-      { to: "/courses", label: "الأعوام الدراسية", perm: "courses.view" },
+      { to: "/courses", label: "العام الدراسي", perm: "courses.view" },
       { to: "/classes", label: "الصفوف والتسجيل", perm: "classes.view" },
     ],
   },
@@ -143,7 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <nav className="space-y-4">
           {NAV.map((group) => {
-            const items = group.items.filter((i) => allowed(i.perm));
+            const items = group.items.filter((i) => allowed(i.perm) && (i.to !== "/audit" || user.role === "owner"));
             if (!items.length) return null;
             return (
               <div key={group.group}>

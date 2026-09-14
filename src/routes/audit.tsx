@@ -18,7 +18,7 @@ export const Route = createFileRoute("/audit")({
 });
 
 function AuditPage() {
-  const { db, allowed } = useApp();
+  const { db, allowed, user } = useApp();
   const [q, setQ] = useState("");
   const [entity, setEntity] = useState("");
   const [action, setAction] = useState("");
@@ -52,7 +52,7 @@ function AuditPage() {
   const pagination = usePagination(rows, `${debouncedQ}|${entity}|${action}|${dateFrom}|${dateTo}`);
 
   if (!db) return null;
-  if (!allowed("audit.view")) return <Denied />;
+  if (!allowed("audit.view") || user?.role !== "owner") return <Denied />;
 
   function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
     const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
