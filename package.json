@@ -21,7 +21,7 @@
     "test:monthly-finance": "node --import tsx tests/monthly-financial-harness.ts",
     "test:settlements": "node --import tsx tests/settlement-harness.ts",
     "test:security": "node --import tsx tests/security-harness.ts",
-    "test:desktop": "node --check desktop/main.mjs && node --check desktop/preload.cjs && node tests/desktop-harness.mjs",
+    "test:desktop": "node --check desktop/main.mjs && node --check desktop/preload.cjs && node tests/backup-crypto-harness.mjs && node tests/desktop-harness.mjs",
     "test:performance": "node tests/performance-harness.mjs",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run build",
