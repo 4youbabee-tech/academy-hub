@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Apply payroll print UX hotfix
-        run: node scripts/fix-payroll-print-ux.mjs
+        run: python3 scripts/fix-payroll-print-ux.py
 
       - name: Verify source
         run: npm run ci:verify
