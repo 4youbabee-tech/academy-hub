@@ -5,6 +5,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { AcademyDatabase } from "../desktop/database.mjs";
 
+const RECORD_COUNT = 50_000;
 const temp = await mkdtemp(path.join(os.tmpdir(), "academy-hub-perf-"));
 const databasePath = path.join(temp, "data", "academy-hub.sqlite");
 const backupDirectory = path.join(temp, "backups");
@@ -15,12 +16,12 @@ const base = {
   guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null,
   status: "active", archived_at: null, notes: "",
 };
-const students = Array.from({ length: 10_000 }, (_, index) => ({
+const students = Array.from({ length: RECORD_COUNT }, (_, index) => ({
   ...base,
   id: `student-${index + 1}`,
-  code: `ST-${String(index + 1).padStart(5, "0")}`,
+  code: `ST-${String(index + 1).padStart(6, "0")}`,
   full_name: `طالب أداء ${index + 1}`,
-  phone: `70${String(index).padStart(6, "0")}`,
+  phone: `70${String(index).padStart(7, "0")}`,
 }));
 const emptyCollections = {
   courses: [], classes: [], enrollments: [], invoices: [], installments: [], payments: [], employees: [],
@@ -42,38 +43,38 @@ try {
   let started = performance.now();
   database.saveSnapshot(snapshot);
   const firstSaveMs = performance.now() - started;
-  assert.ok(firstSaveMs < 20_000, `initial 10k save too slow: ${Math.round(firstSaveMs)}ms`);
+  assert.ok(firstSaveMs < 30_000, `initial 50k save too slow: ${Math.round(firstSaveMs)}ms`);
 
   started = performance.now();
   const loaded = database.loadSnapshot();
   const loadMs = performance.now() - started;
-  assert.equal(loaded.students.length, 10_000);
-  assert.ok(loadMs < 10_000, `10k load too slow: ${Math.round(loadMs)}ms`);
+  assert.equal(loaded.students.length, RECORD_COUNT);
+  assert.ok(loadMs < 15_000, `50k load too slow: ${Math.round(loadMs)}ms`);
 
   started = performance.now();
-  const page = database.getPage("students", { limit: 50, offset: 9_950 });
+  const page = database.getPage("students", { limit: 50, offset: RECORD_COUNT - 50 });
   const pageMs = performance.now() - started;
-  assert.equal(page.total, 10_000);
+  assert.equal(page.total, RECORD_COUNT);
   assert.equal(page.rows.length, 50);
-  assert.equal(page.rows[49].id, "student-10000");
+  assert.equal(page.rows[49].id, `student-${RECORD_COUNT}`);
   assert.ok(pageMs < 2_000, `paged query too slow: ${Math.round(pageMs)}ms`);
 
   started = performance.now();
-  const search = database.getPage("students", { limit: 20, search: "أداء 9999" });
+  const search = database.getPage("students", { limit: 20, search: "أداء 49999" });
   const searchMs = performance.now() - started;
   assert.equal(search.total, 1);
-  assert.equal(search.rows[0]?.id, "student-9999");
-  assert.ok(searchMs < 3_000, `10k search too slow: ${Math.round(searchMs)}ms`);
+  assert.equal(search.rows[0]?.id, "student-49999");
+  assert.ok(searchMs < 5_000, `50k search too slow: ${Math.round(searchMs)}ms`);
 
   const changed = students.slice();
-  changed[9_999] = { ...changed[9_999], full_name: "طالب أداء معدل 10000", updated_at: new Date().toISOString() };
+  changed[RECORD_COUNT - 1] = { ...changed[RECORD_COUNT - 1], full_name: `طالب أداء معدل ${RECORD_COUNT}`, updated_at: new Date().toISOString() };
   started = performance.now();
   database.saveSnapshot({ ...snapshot, students: changed });
   const incrementalSaveMs = performance.now() - started;
-  assert.equal(database.getPage("students", { limit: 10, search: "معدل 10000" }).total, 1);
-  assert.ok(incrementalSaveMs < 12_000, `incremental 10k snapshot save too slow: ${Math.round(incrementalSaveMs)}ms`);
+  assert.equal(database.getPage("students", { limit: 10, search: `معدل ${RECORD_COUNT}` }).total, 1);
+  assert.ok(incrementalSaveMs < 18_000, `incremental 50k snapshot save too slow: ${Math.round(incrementalSaveMs)}ms`);
 
-  console.log(`performance-harness: OK (save=${Math.round(firstSaveMs)}ms load=${Math.round(loadMs)}ms page=${Math.round(pageMs)}ms search=${Math.round(searchMs)}ms incremental=${Math.round(incrementalSaveMs)}ms)`);
+  console.log(`performance-harness: OK (${RECORD_COUNT} records save=${Math.round(firstSaveMs)}ms load=${Math.round(loadMs)}ms page=${Math.round(pageMs)}ms search=${Math.round(searchMs)}ms incremental=${Math.round(incrementalSaveMs)}ms)`);
 } finally {
   if (database) database.close();
   await rm(temp, { recursive: true, force: true });
