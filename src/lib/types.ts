@@ -76,8 +76,8 @@ export interface Course extends Base {
   name: string;
   code: string;
   level: string;
-  hours: number; // minor units
-  default_price: number;
+  hours: number;
+  default_price: number; // minor units
   active: boolean;
 }
 
