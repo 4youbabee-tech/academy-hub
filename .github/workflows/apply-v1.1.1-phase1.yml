@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: academy-v1.1.1-staged
+  cancel-in-progress: true
+
 jobs:
   verify-and-apply:
     if: github.actor != 'github-actions[bot]'
@@ -32,6 +36,9 @@ jobs:
       - name: Apply terminology and navigation phase
         run: node scripts/apply-v1.1.1-phase2.mjs
 
+      - name: Apply student-first registration phase
+        run: node scripts/apply-v1.1.1-phase3.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
@@ -47,5 +54,5 @@ jobs:
             echo "No generated source changes to commit"
             exit 0
           fi
-          git commit -m "fix(v1.1.1): center terminology and color-coded navigation"
+          git commit -m "feat(v1.1.1): center workflow on students and simplify navigation"
           git push origin HEAD:academy-v1.1.1-usability-finance
