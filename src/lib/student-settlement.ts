@@ -73,10 +73,8 @@ export function recordStudentAllocatedReceipt(
     const groupId = uid();
     const receiptNo = nextReceiptNo(db);
     const paidAt = new Date().toISOString();
-    let runningPaid = paidBefore;
 
     for (const target of targets) {
-      runningPaid += target.amount;
       const payment: Payment = {
         ...baseFields(),
         invoice_id: invoice.id,
