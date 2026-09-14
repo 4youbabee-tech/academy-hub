@@ -7,7 +7,11 @@ import { StudentAnnualBillingCard } from "@/components/StudentAnnualBillingCard"
 import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
 import { invoiceFinancials, studentBalance } from "@/lib/finance";
+import { printInvoice } from "@/lib/invoice-print";
 import { printReceipt } from "@/lib/receipt-print";
+import { receiptGroupRows } from "@/lib/student-settlement";
+import { printStudentStatement } from "@/lib/student-statement-print";
+import type { Payment } from "@/lib/types";
 
 export const Route = createFileRoute("/students/$id")({
   head: () => ({
@@ -42,16 +46,47 @@ function StudentProfile() {
   const invoices = currentDb.invoices
     .filter((i) => i.student_id === student.id)
     .sort((a, b) => b.issued_at.localeCompare(a.issued_at));
-  const payments = currentDb.payments
-    .filter((p) => p.student_id === student.id)
-    .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
 
-  function paymentsForInvoice(invoiceId: string) {
+  function receiptKey(payment: Payment): string {
+    return payment.receipt_group_id || payment.id;
+  }
+
+  function receiptAmount(payment: Payment): number {
+    return receiptGroupRows(currentDb, payment).reduce((sum, row) => sum + row.amount, 0);
+  }
+
+  function receiptVoid(payment: Payment): boolean {
+    const rows = receiptGroupRows(currentDb, payment);
+    return rows.length > 0 && rows.every((row) => row.is_void);
+  }
+
+  function visibleReceiptsForInvoice(invoiceId: string): Payment[] {
+    const seen = new Set<string>();
     return currentDb.payments
       .filter((payment) => payment.invoice_id === invoiceId)
       .slice()
-      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at));
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))
+      .filter((payment) => {
+        const key = receiptKey(payment);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   }
+
+  const payments = (() => {
+    const seen = new Set<string>();
+    return currentDb.payments
+      .filter((payment) => payment.student_id === student.id)
+      .slice()
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))
+      .filter((payment) => {
+        const key = receiptKey(payment);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  })();
 
   function courseAndClassForInvoice(invoiceId: string): string {
     const invoice = currentDb.invoices.find((i) => i.id === invoiceId);
@@ -72,12 +107,10 @@ function StudentProfile() {
             {canEnroll && student.status === "active" ? (
               <Button onClick={() => setEnrollOpen(true)}>+ تسجيل في صف</Button>
             ) : null}
-            <Button variant="secondary" onClick={() => window.print()}>
-              طباعة كشف الحساب
+            <Button variant="secondary" onClick={() => printStudentStatement(currentDb, student.id)}>
+              🖨️ طباعة كشف الحساب
             </Button>
-            <Link to="/students">
-              <Button variant="ghost">رجوع</Button>
-            </Link>
+            <Link to="/students"><Button variant="ghost">رجوع</Button></Link>
           </>
         }
       />
@@ -99,9 +132,7 @@ function StudentProfile() {
           <p>تاريخ الميلاد: {dateStr(student.birth_date)}</p>
           <p>الجنس: {student.gender === "male" ? "ذكر" : student.gender === "female" ? "أنثى" : "—"}</p>
           <p>المستوى التعليمي: {student.education_level || "—"}</p>
-          <p>
-            ولي الأمر: {student.guardian_name || "—"} {student.guardian_phone ? `(${student.guardian_phone})` : ""}
-          </p>
+          <p>ولي الأمر: {student.guardian_name || "—"} {student.guardian_phone ? `(${student.guardian_phone})` : ""}</p>
           <p>الهاتف: {student.phone || "—"}</p>
           <p>اسم الأم: {student.mother_name || "—"}</p>
           <p>المدرسة: {student.school_name || "—"}</p>
@@ -114,9 +145,7 @@ function StudentProfile() {
 
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
-        <Table head={canViewFinance
-          ? ["الصف", "العام الدراسي", "تاريخ التسجيل", "إجمالي الفاتورة الفعلية", "الحالة"]
-          : ["الصف", "العام الدراسي", "تاريخ التسجيل", "الحالة"]}>
+        <Table head={canViewFinance ? ["الصف", "العام الدراسي", "تاريخ التسجيل", "إجمالي الفاتورة الفعلية", "الحالة"] : ["الصف", "العام الدراسي", "تاريخ التسجيل", "الحالة"]}>
           {enrollments.map((e) => {
             const klass = currentDb.classes.find((c) => c.id === e.class_id);
             const course = currentDb.courses.find((c) => c.id === klass?.course_id);
@@ -127,85 +156,58 @@ function StudentProfile() {
                 <Td>{course?.name ?? "—"}</Td>
                 <Td>{dateStr(e.enrolled_at)}</Td>
                 {canViewFinance ? <Td className="tabular-nums">{money(invoice?.total ?? 0, cur)}</Td> : null}
-                <Td>
-                  {e.status === "active"
-                    ? <Badge tone="success">نشط</Badge>
-                    : e.status === "completed"
-                      ? <Badge tone="primary">منتهٍ</Badge>
-                      : e.status === "withdrawn"
-                        ? <Badge tone="muted">متوقف</Badge>
-                        : <Badge tone="danger">ملغى</Badge>}
-                </Td>
+                <Td>{e.status === "active" ? <Badge tone="success">نشط</Badge> : e.status === "completed" ? <Badge tone="primary">منتهٍ</Badge> : e.status === "withdrawn" ? <Badge tone="muted">متوقف</Badge> : <Badge tone="danger">ملغى</Badge>}</Td>
               </tr>
             );
           })}
         </Table>
-      ) : (
-        <Empty text="لا توجد تسجيلات." />
-      )}
+      ) : <Empty text="لا توجد تسجيلات." />}
 
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2> : null}
       {canViewFinance && invoices.length ? (
-        <Table head={["الفاتورة", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ", ""]}>
-          {invoices.map((i) => {
-            const financials = invoiceFinancials(currentDb, i);
-            const invoicePayments = paymentsForInvoice(i.id);
-            const latestPayment = invoicePayments.find((payment) => !payment.is_void) ?? invoicePayments[0];
+        <Table head={["الفاتورة", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", "التاريخ", "الإجراءات"]}>
+          {invoices.map((invoice) => {
+            const financials = invoiceFinancials(currentDb, invoice);
+            const invoiceReceipts = visibleReceiptsForInvoice(invoice.id);
+            const latestPayment = invoiceReceipts.find((payment) => !receiptVoid(payment)) ?? invoiceReceipts[0];
             return (
-              <tr key={i.id}>
-                <Td className="font-semibold">{i.number}</Td>
-                <Td>{courseAndClassForInvoice(i.id)}</Td>
-                <Td className="tabular-nums">{money(i.total, cur)}</Td>
+              <tr key={invoice.id}>
+                <Td className="font-semibold">{invoice.number}</Td>
+                <Td>{courseAndClassForInvoice(invoice.id)}</Td>
+                <Td className="tabular-nums">{money(invoice.total, cur)}</Td>
                 <Td className="tabular-nums">{money(financials.paid, cur)}</Td>
                 <Td className="tabular-nums">{money(financials.due, cur)}</Td>
-                <Td>
-                  {i.status === "paid"
-                    ? <Badge tone="success">مسددة</Badge>
-                    : i.status === "open"
-                      ? <Badge tone="danger">عليها رصيد</Badge>
-                      : <Badge tone="muted">ملغاة</Badge>}
-                </Td>
-                <Td>{dateStr(i.issued_at)}</Td>
-                <Td>{latestPayment ? <Button variant="secondary" onClick={() => printReceipt(currentDb, latestPayment)}>🖨️ آخر سند</Button> : null}</Td>
+                <Td>{invoice.status === "paid" ? <Badge tone="success">مسددة</Badge> : invoice.status === "open" ? <Badge tone="danger">عليها رصيد</Badge> : <Badge tone="muted">ملغاة</Badge>}</Td>
+                <Td>{dateStr(invoice.issued_at)}</Td>
+                <Td><div className="flex flex-wrap gap-1"><Button variant="secondary" onClick={() => printInvoice(currentDb, invoice)}>🖨️ الفاتورة</Button>{latestPayment ? <Button variant="secondary" onClick={() => printReceipt(currentDb, latestPayment)}>🖨️ آخر سند</Button> : null}</div></Td>
               </tr>
             );
           })}
         </Table>
-      ) : canViewFinance ? (
-        <Empty text="لا توجد فواتير." />
-      ) : null}
+      ) : canViewFinance ? <Empty text="لا توجد فواتير." /> : null}
 
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">سجل القبض — كل السندات</h2> : null}
       {canViewFinance && payments.length ? (
         <Table head={["رقم السند", "البيان / الملاحظة", "العام الدراسي / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
-          {payments.map((p) => (
-            <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
-              <Td className="font-semibold">{p.receipt_no}</Td>
-              <Td>{p.note?.trim() || "دفعة"}</Td>
-              <Td>{courseAndClassForInvoice(p.invoice_id)}</Td>
-              <Td className="tabular-nums">{money(p.amount, cur)}</Td>
-              <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
-              <Td>{dateStr(p.paid_at)}</Td>
-              <Td>{p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}</Td>
-              <Td>
-                <Button variant="secondary" onClick={() => printReceipt(currentDb, p)}>
-                  {p.is_void || currentDb.invoices.find((invoice) => invoice.id === p.invoice_id)?.status === "cancelled"
-                    ? "🖨️ طباعة نسخة تاريخية"
-                    : "🖨️ طباعة السند"}
-                </Button>
-              </Td>
-            </tr>
-          ))}
+          {payments.map((payment) => {
+            const isVoid = receiptVoid(payment);
+            return (
+              <tr key={receiptKey(payment)} className={isVoid ? "opacity-50" : ""}>
+                <Td className="font-semibold">{payment.receipt_no}</Td>
+                <Td>{payment.note?.trim() || "دفعة"}</Td>
+                <Td>{courseAndClassForInvoice(payment.invoice_id)}</Td>
+                <Td className="tabular-nums">{money(receiptAmount(payment), cur)}</Td>
+                <Td>{payment.method === "cash" ? "نقدًا" : payment.method === "bank" ? "مصرف" : "أخرى"}</Td>
+                <Td>{dateStr(payment.paid_at)}</Td>
+                <Td>{isVoid ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}</Td>
+                <Td><Button variant="secondary" onClick={() => printReceipt(currentDb, payment)}>{isVoid || currentDb.invoices.find((invoice) => invoice.id === payment.invoice_id)?.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}</Button></Td>
+              </tr>
+            );
+          })}
         </Table>
-      ) : canViewFinance ? (
-        <Empty text="لا توجد دفعات قبض." />
-      ) : null}
+      ) : canViewFinance ? <Empty text="لا توجد دفعات قبض." /> : null}
 
-      <StudentEnrollmentModal
-        open={enrollOpen}
-        studentId={student.id}
-        onClose={() => setEnrollOpen(false)}
-      />
+      <StudentEnrollmentModal open={enrollOpen} studentId={student.id} onClose={() => setEnrollOpen(false)} />
     </div>
   );
 }
