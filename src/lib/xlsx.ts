@@ -158,7 +158,9 @@ export function buildXlsx(sheetName: string, rows: XlsxCell[][]): Uint8Array {
 
 export function downloadXlsx(filename: string, sheetName: string, rows: XlsxCell[][]): void {
   const bytes = buildXlsx(sheetName, rows);
-  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
