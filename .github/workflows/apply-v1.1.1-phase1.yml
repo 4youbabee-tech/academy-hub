@@ -48,6 +48,9 @@ jobs:
       - name: Apply unified invoice collection phase
         run: node scripts/apply-v1.1.1-phase6.mjs
 
+      - name: Apply student lifecycle and export safeguards phase
+        run: node scripts/apply-v1.1.1-phase7.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
