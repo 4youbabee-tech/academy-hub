@@ -2,6 +2,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
+import { StudentEnrollmentModal } from "@/components/StudentEnrollmentModal";
+import { StudentAnnualBillingCard } from "@/components/StudentAnnualBillingCard";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
 import { invoiceFinancials, studentBalance, studentMonthlyLedger, voidInstallment } from "@/lib/finance";
@@ -10,9 +12,9 @@ import { printReceipt } from "@/lib/receipt-print";
 export const Route = createFileRoute("/students/$id")({
   head: () => ({
     meta: [
-      { title: "ملف الطالب — نظام إدارة المعهد" },
+      { title: "ملف الطالب — نظام إدارة المركز التعليمي" },
       { name: "description", content: "ملف الطالب: البيانات، التسجيلات، الفواتير والإيصالات." },
-      { property: "og:title", content: "ملف الطالب — نظام إدارة المعهد" },
+      { property: "og:title", content: "ملف الطالب — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "التسجيلات وكشف الحساب المالي للطالب." },
     ],
   }),
@@ -25,11 +27,13 @@ function StudentProfile() {
   const [voidMonthlyId, setVoidMonthlyId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState<string | null>(null);
+  const [enrollOpen, setEnrollOpen] = useState(false);
   if (!db) return null;
   if (!allowed("students.view")) return <Denied />;
   const currentDb = db;
   const canViewFinance = allowed("finance.view");
   const canVoidFinance = allowed("finance.void");
+  const canEnroll = allowed("enrollments.create");
 
   const student = currentDb.students.find((s) => s.id === id);
   if (!student) return <Empty text="الطالب غير موجود." />;
@@ -75,6 +79,9 @@ function StudentProfile() {
         subtitle={`الرمز ${student.code} — ${student.phone || "بدون هاتف"}`}
         actions={
           <>
+            {canEnroll && student.status === "active" ? (
+              <Button onClick={() => setEnrollOpen(true)}>+ تسجيل في صف</Button>
+            ) : null}
             <Button variant="secondary" onClick={() => window.print()}>
               طباعة كشف الحساب
             </Button>
@@ -112,6 +119,8 @@ function StudentProfile() {
           {student.notes ? <p className="sm:col-span-2">ملاحظات: {student.notes}</p> : null}
         </div>
       </Panel>
+
+      <StudentAnnualBillingCard studentId={student.id} />
 
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
@@ -235,6 +244,12 @@ function StudentProfile() {
       ) : canViewFinance ? (
         <Empty text="لا توجد سندات قبض." />
       ) : null}
+
+      <StudentEnrollmentModal
+        open={enrollOpen}
+        studentId={student.id}
+        onClose={() => setEnrollOpen(false)}
+      />
     </div>
   );
 }

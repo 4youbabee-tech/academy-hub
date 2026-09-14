@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
+import { StudentEnrollmentModal } from "@/components/StudentEnrollmentModal";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td, Textarea } from "@/components/ui-kit";
 import { insert, nextStudentCode, snapshot, transact, update } from "@/lib/db";
 import { studentBalanceMap } from "@/lib/finance";
@@ -9,12 +10,12 @@ import { money } from "@/lib/format";
 import type { Student } from "@/lib/types";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
-import { archiveStudent, restoreStudent } from "@/lib/records";
+import { archiveStudent, restoreStudent, setStudentOperationalStatus } from "@/lib/records";
 
 export const Route = createFileRoute("/students")({
   head: () => ({
     meta: [
-      { title: "الطلاب — نظام إدارة المعهد" },
+      { title: "الطلاب — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة سجلات الطلاب والملفات المالية والأرشيف." },
     ],
   }),
@@ -44,6 +45,7 @@ function StudentsPage() {
   const [editing, setEditing] = useState<Student | null>(null);
   const [archiveFor, setArchiveFor] = useState<Student | null>(null);
   const [restoreFor, setRestoreFor] = useState<Student | null>(null);
+  const [enrollStudentId, setEnrollStudentId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const debouncedQ = useDebouncedValue(q);
@@ -92,6 +94,7 @@ function StudentsPage() {
   if (!allowed("students.view")) return <Denied />;
   const canCreate = allowed("students.create");
   const canEdit = allowed("students.update");
+  const canEnroll = allowed("enrollments.create");
   const canViewFinance = allowed("finance.view");
   const archivedCount = db.students.filter((s) => s.status === "archived").length;
   const visibleCount = db.students.length - archivedCount;
@@ -127,17 +130,19 @@ function StudentsPage() {
     if (!form.full_name.trim()) return setError("اسم الطالب إلزامي");
     try {
       if (editing) {
+        const { status: nextStatus, ...profile } = form;
         update(
           "students",
           editing.id,
           {
-            ...form,
+            ...profile,
             birth_date: form.birth_date || null,
             education_level: form.education_level || null,
           },
           actor,
-          `تعديل الطالب ${form.full_name}`,
+          `تعديل بيانات الطالب ${form.full_name}`,
         );
+        if (nextStatus !== editing.status) setStudentOperationalStatus(editing.id, nextStatus, actor);
       } else {
         let code = "";
         transact((d) => {
@@ -187,7 +192,7 @@ function StudentsPage() {
   return (
     <div>
       <PageHeader
-        title="الطلاب"
+        title="الطلاب والتسجيل"
         subtitle={`${visibleCount} طالب — ${archivedCount} في الأرشيف`}
         actions={canCreate ? <Button onClick={startAdd}>+ طالب جديد</Button> : null}
       />
@@ -206,8 +211,8 @@ function StudentsPage() {
       {rows.length ? (
         <>
         <Table head={canViewFinance
-          ? ["الرمز", "الاسم", "المستوى", "الدورة / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
-          : ["الرمز", "الاسم", "المستوى", "الدورة / الصف", "الحالة", ""]}>
+          ? ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
+          : ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "الحالة", ""]}>
           {pagination.rows.map((s) => {
             const bal = balances.get(s.id) ?? { billed: 0, paid: 0, due: 0 };
             const enrollmentLabels = academicLabels.get(s.id) ?? [];
@@ -249,24 +254,24 @@ function StudentsPage() {
                   </Badge>
                 </Td>
                 <Td>
-                  {canEdit ? (
-                    <div className="flex flex-wrap gap-1">
-                      {s.status === "archived" ? (
-                        <Button variant="secondary" onClick={() => setRestoreFor(s)}>
-                          استرجاع
-                        </Button>
+                  <div className="flex flex-wrap gap-1">
+                    <Link to="/students/$id" params={{ id: s.id }}>
+                      <Button variant="secondary">بطاقة الطالب</Button>
+                    </Link>
+                    {canEnroll && s.status === "active" ? (
+                      <Button variant="ghost" onClick={() => setEnrollStudentId(s.id)}>تسجيل</Button>
+                    ) : null}
+                    {canEdit ? (
+                      s.status === "archived" ? (
+                        <Button variant="secondary" onClick={() => setRestoreFor(s)}>استرجاع</Button>
                       ) : (
                         <>
-                          <Button variant="ghost" onClick={() => startEdit(s)}>
-                            تعديل
-                          </Button>
-                          <Button variant="ghost" onClick={() => { setArchiveFor(s); setError(null); }}>
-                            أرشفة
-                          </Button>
+                          <Button variant="ghost" onClick={() => startEdit(s)}>تعديل</Button>
+                          <Button variant="ghost" onClick={() => { setArchiveFor(s); setError(null); }}>أرشفة</Button>
                         </>
-                      )}
-                    </div>
-                  ) : null}
+                      )
+                    ) : null}
+                  </div>
                 </Td>
               </tr>
             );
@@ -397,6 +402,12 @@ function StudentsPage() {
           </div>
         ) : null}
       </Modal>
+
+      <StudentEnrollmentModal
+        open={!!enrollStudentId}
+        studentId={enrollStudentId}
+        onClose={() => setEnrollStudentId(null)}
+      />
     </div>
   );
 }

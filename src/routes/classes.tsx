@@ -21,10 +21,10 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/classes")({
   head: () => ({
     meta: [
-      { title: "الصفوف والتسجيل — نظام إدارة المعهد" },
-      { name: "description", content: "إدارة الصفوف الدراسية والمدرّسين والجداول الأسبوعية وتسجيل الطلاب." },
-      { property: "og:title", content: "الصفوف والتسجيل — نظام إدارة المعهد" },
-      { property: "og:description", content: "الصفوف والمدرّسون والجداول الأسبوعية وتسجيل الطلاب." },
+      { title: "الصفوف — نظام إدارة المركز التعليمي" },
+      { name: "description", content: "إدارة الصفوف الدراسية والمدرّسين والجداول الأسبوعية." },
+      { property: "og:title", content: "الصفوف — نظام إدارة المركز التعليمي" },
+      { property: "og:description", content: "الصفوف والمدرّسون والجداول الأسبوعية." },
     ],
   }),
   component: ClassesPage,
@@ -370,13 +370,13 @@ function ClassesPage() {
   return (
     <div>
       <PageHeader
-        title="الصفوف والتسجيل"
+        title="الصفوف"
         subtitle={`${classes.length} من ${currentDb.classes.length} صف`}
         actions={canEdit ? <Button onClick={openNew}>+ صف جديد</Button> : null}
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_220px]">
-        <Input value={classQuery} onChange={(e) => setClassQuery(e.target.value)} placeholder="بحث بالصف أو العام الدراسي أو المدرّس أو اسم طالب" />
+        <Input value={classQuery} onChange={(e) => setClassQuery(e.target.value)} placeholder="بحث بالصف أو العام الدراسي أو المدرّس" />
         <Select value={classStatus} onChange={(e) => setClassStatus(e.target.value)}>
           <option value="">كل الحالات</option><option value="running">جارٍ</option><option value="finished">منتهٍ</option>
         </Select>
@@ -384,7 +384,7 @@ function ClassesPage() {
 
       {classes.length ? (
         <>
-        <Table head={["الصف", "العام الدراسي", "المدرّس", "الفصل", "الفترة", "المسجّلون", "الحالة", ""]}>
+        <Table head={["الصف", "العام الدراسي", "المدرّس", "الفصل", "الفترة", "عدد الطلاب", "الحالة", ""]}>
           {classPagination.rows.map((k) => (
             <tr key={k.id}>
               <Td className="font-semibold">{k.name}</Td>
@@ -405,20 +405,6 @@ function ClassesPage() {
               </Td>
               <Td>
                 <div className="flex flex-wrap gap-1">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setRegistrantsFor(k);
-                      setCancelError(null);
-                    }}
-                  >
-                    المسجّلون
-                  </Button>
-                  {canEnroll ? (
-                    <Button variant="ghost" onClick={() => openEnroll(k)}>
-                      تسجيل طالب
-                    </Button>
-                  ) : null}
                   {canEdit ? (
                     <Button variant="ghost" onClick={() => openEdit(k)}>
                       تعديل الصف

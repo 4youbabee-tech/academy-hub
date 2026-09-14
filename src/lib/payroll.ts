@@ -207,7 +207,8 @@ export function recordPayrollPayment(itemId: ID, amount: number, actor: Actor, n
     const item = db.payroll_items.find((row) => row.id === itemId);
     if (!item) throw new Error("كشف الراتب غير موجود");
     validatePayrollItem(item);
-    const remaining = payrollRemaining(db, item.id);
+    const paidBefore = payrollPaid(db, item.id);
+    const remaining = Math.max(0, item.net - paidBefore);
     if (remaining <= 0) throw new Error("تم دفع هذا الراتب بالكامل");
     if (amount > remaining) throw new Error("المبلغ يتجاوز المتبقي من الراتب");
     const payment: PayrollPayment = {
@@ -221,6 +222,10 @@ export function recordPayrollPayment(itemId: ID, amount: number, actor: Actor, n
       voided_at: null,
       user_id: actor.id,
       note: note.trim(),
+      payroll_net_snapshot: item.net,
+      paid_before_snapshot: paidBefore,
+      paid_after_snapshot: paidBefore + amount,
+      remaining_after_snapshot: Math.max(0, item.net - paidBefore - amount),
     };
     db.payroll_payments.push(payment);
     createdId = payment.id;

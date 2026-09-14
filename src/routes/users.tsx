@@ -11,7 +11,7 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/users")({
   head: () => ({
     meta: [
-      { title: "المستخدمون — نظام إدارة المعهد" },
+      { title: "المستخدمون — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة المستخدمين والأدوار والصلاحيات." },
     ],
   }),

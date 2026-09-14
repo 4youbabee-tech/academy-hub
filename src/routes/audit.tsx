@@ -10,7 +10,7 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/audit")({
   head: () => ({
     meta: [
-      { title: "سجل التدقيق — نظام إدارة المعهد" },
+      { title: "سجل التدقيق — نظام إدارة المركز التعليمي" },
       { name: "description", content: "سجل جميع العمليات الحساسة في النظام مع فلترة متقدمة." },
     ],
   }),
@@ -67,6 +67,12 @@ function AuditPage() {
       cancel: "warning",
       archive: "warning",
       restore: "success",
+      status: "primary",
+      "skip-month": "warning",
+      "restore-month": "success",
+      withdraw: "warning",
+      generate: "success",
+      "catch-up": "success",
       init: "muted",
     };
     return map[action] || "muted";
@@ -84,6 +90,12 @@ function AuditPage() {
     cancel: "إلغاء",
     archive: "أرشفة",
     restore: "استرجاع",
+    status: "تغيير حالة",
+    "skip-month": "تخطي شهر",
+    "restore-month": "إعادة شهر",
+    withdraw: "إيقاف تسجيل",
+    generate: "توليد شهري",
+    "catch-up": "استكمال شهري",
     init: "تهيئة",
   };
 

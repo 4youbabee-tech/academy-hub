@@ -11,7 +11,7 @@ import { localFileTimestamp } from "@/lib/format";
 export const Route = createFileRoute("/backup")({
   head: () => ({
     meta: [
-      { title: "النسخ الاحتياطي — نظام إدارة المعهد" },
+      { title: "النسخ الاحتياطي — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إنشاء نسخة احتياطية محلية واستعادة بيانات النظام." },
     ],
   }),
@@ -169,7 +169,7 @@ function BackupPage() {
     <div>
       <PageHeader
         title="النسخ الاحتياطي"
-        subtitle="احفظ نسخة من بيانات المعهد محلياً أو استعد نسخة سابقة عند الحاجة."
+        subtitle="احفظ نسخة من بيانات المركز التعليمي محلياً أو استعد نسخة سابقة عند الحاجة."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

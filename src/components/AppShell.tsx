@@ -11,20 +11,38 @@ import { cn } from "@/lib/utils";
 const NAV = [
   {
     group: "الرئيسية",
+    theme: {
+      panel: "border-sky-400/20 bg-sky-500/5",
+      title: "text-sky-200",
+      hover: "hover:bg-sky-500/10",
+      active: "bg-sky-500/20 text-white ring-1 ring-inset ring-sky-300/20",
+    },
     items: [{ to: "/", label: "لوحة المعلومات", perm: "students.view" }],
   },
   {
     group: "الأكاديمي",
+    theme: {
+      panel: "border-cyan-400/20 bg-cyan-500/5",
+      title: "text-cyan-200",
+      hover: "hover:bg-cyan-500/10",
+      active: "bg-cyan-500/20 text-white ring-1 ring-inset ring-cyan-300/20",
+    },
     items: [
-      { to: "/students", label: "الطلاب", perm: "students.view" },
+      { to: "/students", label: "الطلاب والتسجيل", perm: "students.view" },
       { to: "/courses", label: "العام الدراسي", perm: "courses.view" },
-      { to: "/classes", label: "الصفوف والتسجيل", perm: "classes.view" },
+      { to: "/classes", label: "الصفوف", perm: "classes.view" },
     ],
   },
   {
     group: "المالية",
+    theme: {
+      panel: "border-emerald-400/20 bg-emerald-500/5",
+      title: "text-emerald-200",
+      hover: "hover:bg-emerald-500/10",
+      active: "bg-emerald-500/20 text-white ring-1 ring-inset ring-emerald-300/20",
+    },
     items: [
-      { to: "/receipts", label: "الإيصالات والفواتير", perm: "finance.view" },
+      { to: "/receipts", label: "الفواتير والتحصيل", perm: "finance.view" },
       { to: "/expenses", label: "المصاريف والمداخيل", perm: "expenses.view" },
       { to: "/employees", label: "الموظفون والرواتب", perm: "payroll.view" },
       { to: "/reports", label: "التقارير", perm: "reports.view" },
@@ -32,6 +50,12 @@ const NAV = [
   },
   {
     group: "النظام",
+    theme: {
+      panel: "border-violet-400/20 bg-violet-500/5",
+      title: "text-violet-200",
+      hover: "hover:bg-violet-500/10",
+      active: "bg-violet-500/20 text-white ring-1 ring-inset ring-violet-300/20",
+    },
     items: [
       { to: "/settings", label: "الإعدادات", perm: "settings.view" },
       { to: "/users", label: "المستخدمون", perm: "users.view" },
@@ -55,11 +79,11 @@ function LoginScreen() {
           {db?.settings.logo_data_url ? (
             <img
               src={db.settings.logo_data_url}
-              alt={db.settings.institute_name || "شعار المعهد"}
+              alt={db.settings.institute_name || "شعار المركز التعليمي"}
               className="mb-3 h-20 w-20 rounded-xl object-contain"
             />
           ) : null}
-          <h1 className="text-xl font-bold">{db?.settings.institute_name || "نظام إدارة المعهد"}</h1>
+          <h1 className="text-xl font-bold">{db?.settings.institute_name || "نظام إدارة المركز التعليمي"}</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">سجّل الدخول للمتابعة</p>
         <form
@@ -131,13 +155,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             {db.settings.logo_data_url ? (
               <img
                 src={db.settings.logo_data_url}
-                alt={db.settings.institute_name || "شعار المعهد"}
+                alt={db.settings.institute_name || "شعار المركز التعليمي"}
                 className="h-12 w-12 shrink-0 rounded-lg bg-white/90 object-contain p-1"
               />
             ) : null}
             <div className="min-w-0">
               <p className="truncate text-base font-bold">{db.settings.institute_name}</p>
-              <p className="text-xs opacity-70">نظام إدارة المعهد</p>
+              <p className="text-xs opacity-70">نظام إدارة المركز التعليمي</p>
             </div>
           </div>
         </div>
@@ -146,8 +170,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             const items = group.items.filter((i) => allowed(i.perm) && (i.to !== "/audit" || user.role === "owner"));
             if (!items.length) return null;
             return (
-              <div key={group.group}>
-                <p className="px-2 pb-1 text-[11px] font-bold uppercase opacity-55">{group.group}</p>
+              <div key={group.group} className={cn("rounded-xl border p-1.5", group.theme.panel)}>
+                <p className={cn("px-2 pb-1 pt-1 text-[11px] font-bold uppercase", group.theme.title)}>{group.group}</p>
                 <div className="space-y-0.5">
                   {items.map((item) => (
                     <Link
@@ -155,8 +179,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                       to={item.to}
                       onClick={() => setOpen(false)}
                       className={cn(
-                        "block rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent",
-                        pathname === item.to && "bg-sidebar-accent font-bold",
+                        "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        group.theme.hover,
+                        pathname === item.to && group.theme.active,
+                        pathname === item.to && "font-bold",
                       )}
                     >
                       {item.label}
@@ -212,7 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <tr key={student.id}>
                 <Td className="font-semibold">{student.full_name}</Td>
                 <Td className="tabular-nums text-destructive">{money(total, db.settings.currency)}</Td>
-                <Td className="text-xs">{overdue.map((row) => `${row.period}: ${money(row.due, db.settings.currency)}`).join("، ")}</Td>
+                <Td className="text-xs">{overdue.map((row) => { const [year, month] = row.period.split("-"); return `${Number(month)} / ${year}: ${money(row.due, db.settings.currency)}`; }).join("، ")}</Td>
                 <Td><Link to="/students/$id" params={{ id: student.id }} onClick={() => setNotificationsOpen(false)} className="font-semibold text-primary hover:underline">فتح البطاقة</Link></Td>
               </tr>
             ))}

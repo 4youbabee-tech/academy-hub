@@ -11,13 +11,14 @@ import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
 import { printHtmlDocument } from "@/lib/print-document";
+import { printPayrollPaymentReceipt } from "@/lib/payroll-print";
 
 export const Route = createFileRoute("/employees")({
   head: () => ({
     meta: [
-      { title: "الموظفون والرواتب — نظام إدارة المعهد" },
+      { title: "الموظفون والرواتب — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة الموظفين والمدرّسين، السلف، وكشوف الرواتب الشهرية." },
-      { property: "og:title", content: "الموظفون والرواتب — نظام إدارة المعهد" },
+      { property: "og:title", content: "الموظفون والرواتب — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "الموظفون، السلف، وكشف الرواتب الشهري." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -136,8 +137,10 @@ function EmployeesPage() {
     const amount = toMinor(payAmount);
     if (amount <= 0) return setError("مبلغ الدفعة غير صالح");
     try {
+      const paidItem = payFor;
       recordPayrollPayment(payFor.id, amount, actor, "دفعة راتب");
       setPayFor(null);
+      setPaymentHistoryFor(paidItem);
       setPayAmount("");
       setError(null);
     } catch (caught) {
@@ -192,7 +195,7 @@ function EmployeesPage() {
 <body>
   <div class="slip">
     <div class="header">
-      ${settings.logo_data_url ? `<img class="logo" src="${settings.logo_data_url}" alt="شعار المعهد" />` : ""}
+      ${settings.logo_data_url ? `<img class="logo" src="${settings.logo_data_url}" alt="شعار المركز التعليمي" />` : ""}
       <div class="institute">${escapeHtml(settings.institute_name)}</div>
       ${settings.address ? `<div class="muted">${escapeHtml(settings.address)}</div>` : ""}
       ${settings.phone ? `<div class="muted">${escapeHtml(settings.phone)}</div>` : ""}
@@ -358,7 +361,7 @@ function EmployeesPage() {
                   <Button variant="ghost" onClick={() => { setPaymentHistoryFor(i); setError(null); }}>الدفعات</Button>
                   {i.status === "paid" ? (
                     <Button variant="ghost" onClick={() => printSalaryReceipt(i)}>
-                      🖨️ طباعة سند
+                      🖨️ كشف الراتب الكامل
                     </Button>
                   ) : null}
                 </div>
@@ -471,7 +474,7 @@ function EmployeesPage() {
                   <tr key={payment.id} className={payment.is_void ? "opacity-60" : ""}>
                     <Td>{dateStr(payment.paid_at)}</Td><Td className="tabular-nums">{money(payment.amount, cur)}</Td><Td>{payment.note || "—"}</Td>
                     <Td>{payment.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
-                    <Td>{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</Td>
+                    <Td><div className="flex flex-wrap gap-1">{!payment.is_void ? <Button variant="ghost" onClick={() => printPayrollPaymentReceipt(currentDb, paymentHistoryFor, payment)}>🖨️ طباعة</Button> : null}{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</div></Td>
                   </tr>
                 ))}
               </Table>

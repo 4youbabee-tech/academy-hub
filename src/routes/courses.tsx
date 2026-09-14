@@ -10,9 +10,9 @@ import type { Course } from "@/lib/types";
 export const Route = createFileRoute("/courses")({
   head: () => ({
     meta: [
-      { title: "الأعوام الدراسية — نظام إدارة المعهد" },
+      { title: "الأعوام الدراسية — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة الأعوام الدراسية والقسط الشهري الافتراضي." },
-      { property: "og:title", content: "الأعوام الدراسية — نظام إدارة المعهد" },
+      { property: "og:title", content: "الأعوام الدراسية — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "الأعوام الدراسية والأقساط الشهرية الافتراضية." },
     ],
   }),

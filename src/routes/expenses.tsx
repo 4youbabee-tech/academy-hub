@@ -11,9 +11,9 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/expenses")({
   head: () => ({
     meta: [
-      { title: "المصاريف والمداخيل — نظام إدارة المعهد" },
+      { title: "المصاريف والمداخيل — نظام إدارة المركز التعليمي" },
       { name: "description", content: "المصاريف التشغيلية والمداخيل الأخرى مع عرض مالي واضح وآمن." },
-      { property: "og:title", content: "المصاريف والمداخيل — نظام إدارة المعهد" },
+      { property: "og:title", content: "المصاريف والمداخيل — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "مصاريف تشغيلية ومداخيل إضافية مع سجل تدقيق." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
