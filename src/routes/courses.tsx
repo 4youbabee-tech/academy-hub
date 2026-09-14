@@ -49,8 +49,9 @@ function CoursesPage() {
 
   if (!db) return null;
   if (!allowed("courses.view")) return <Denied />;
+  const currentDb = db;
   const canEdit = allowed("courses.create");
-  const cur = db.settings.currency;
+  const cur = currentDb.settings.currency;
 
   function openNew() {
     setEditing(null);
@@ -79,7 +80,7 @@ function CoursesPage() {
     if (!/^\d{4}-\d{4}$/.test(name)) return setError("صيغة العام الدراسي يجب أن تكون مثل 2026-2027");
     const [startText, endText] = name.split("-");
     if (Number(endText) !== Number(startText) + 1) return setError("العام الدراسي يجب أن يكون سنتين متتاليتين");
-    if (db.courses.some((course) => course.id !== editing?.id && course.name.trim() === name)) {
+    if (currentDb.courses.some((course) => course.id !== editing?.id && course.name.trim() === name)) {
       return setError("هذا العام الدراسي موجود مسبقًا");
     }
     const price = toMinor(form.price);
@@ -107,7 +108,7 @@ function CoursesPage() {
     <div>
       <PageHeader
         title="العام الدراسي"
-        subtitle={`${rows.length} من ${db.courses.length} عام دراسي`}
+        subtitle={`${rows.length} من ${currentDb.courses.length} عام دراسي`}
         actions={canEdit ? <Button onClick={openNew}>+ عام دراسي جديد</Button> : null}
       />
 
