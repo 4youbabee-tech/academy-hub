@@ -10,7 +10,7 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/audit")({
   head: () => ({
     meta: [
-      { title: "سجل التدقيق — نظام إدارة المعهد" },
+      { title: "سجل التدقيق — نظام إدارة المركز التعليمي" },
       { name: "description", content: "سجل جميع العمليات الحساسة في النظام مع فلترة متقدمة." },
     ],
   }),
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/audit")({
 });
 
 function AuditPage() {
-  const { db, allowed } = useApp();
+  const { db, allowed, user } = useApp();
   const [q, setQ] = useState("");
   const [entity, setEntity] = useState("");
   const [action, setAction] = useState("");
@@ -52,7 +52,7 @@ function AuditPage() {
   const pagination = usePagination(rows, `${debouncedQ}|${entity}|${action}|${dateFrom}|${dateTo}`);
 
   if (!db) return null;
-  if (!allowed("audit.view")) return <Denied />;
+  if (!allowed("audit.view") || user?.role !== "owner") return <Denied />;
 
   function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
     const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
@@ -67,6 +67,12 @@ function AuditPage() {
       cancel: "warning",
       archive: "warning",
       restore: "success",
+      status: "primary",
+      "skip-month": "warning",
+      "restore-month": "success",
+      withdraw: "warning",
+      generate: "success",
+      "catch-up": "success",
       init: "muted",
     };
     return map[action] || "muted";
@@ -84,6 +90,12 @@ function AuditPage() {
     cancel: "إلغاء",
     archive: "أرشفة",
     restore: "استرجاع",
+    status: "تغيير حالة",
+    "skip-month": "تخطي شهر",
+    "restore-month": "إعادة شهر",
+    withdraw: "إيقاف تسجيل",
+    generate: "توليد شهري",
+    "catch-up": "استكمال شهري",
     init: "تهيئة",
   };
 

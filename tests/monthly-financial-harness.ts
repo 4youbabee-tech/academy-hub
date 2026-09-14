@@ -8,10 +8,13 @@ import {
   updateMonthlyEnrollmentTerms,
   profitAndLoss,
   recordPayment,
+  restoreMonthlyEnrollmentPeriod,
+  skipMonthlyEnrollmentPeriod,
   studentMonthlyLedger,
 } from "../src/lib/finance";
 import { today } from "../src/lib/format";
 import { runMonthlyGeneration } from "../src/lib/monthly";
+import { setStudentOperationalStatus } from "../src/lib/records";
 import {
   generatePayroll,
   payrollPaid,
@@ -111,6 +114,11 @@ current = snapshot()!;
 assert.equal(current.payroll_items.find((item) => item.id === payroll.id)!.status, "partial");
 assert.equal(payrollPaid(current, payroll.id), 15_000);
 assert.equal(payrollRemaining(current, payroll.id), 15_000);
+const salaryPart1Row = current.payroll_payments.find((item) => item.id === salaryPart1)!;
+assert.equal(salaryPart1Row.payroll_net_snapshot, 30_000);
+assert.equal(salaryPart1Row.paid_before_snapshot, 0);
+assert.equal(salaryPart1Row.paid_after_snapshot, 15_000);
+assert.equal(salaryPart1Row.remaining_after_snapshot, 15_000);
 
 const salaryPart2 = recordPayrollPayment(payroll.id, 15_000, actor, "دفعة ثانية");
 current = snapshot()!;
@@ -185,6 +193,51 @@ updateMonthlyEnrollmentTerms({ enrollment_id: newMonthlyId, monthly_price: 15_00
 generateMonthlyStudentCharges(next, actor);
 transitionCurrent = snapshot()!;
 assert.deepEqual(studentMonthlyLedger(transitionCurrent, "student-legacy").map((row) => [row.period, row.amount]), [[currentPeriod, 10_000], [next, 12_000]], "term changes must affect future months only");
+
+
+const skipDb = emptyDb();
+skipDb.users.push({ ...baseFields(), id: actor.id, username: "owner-skip", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
+skipDb.students.push({ ...baseFields(), id: "student-skip", code: "ST-SKIP", full_name: "طالب تخطي شهر", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });
+skipDb.courses.push({ ...baseFields(), id: "course-skip", name: "2026-2027", code: "", level: "", hours: 0, default_price: 10_000, active: true });
+skipDb.classes.push({ ...baseFields(), id: "class-skip", name: "صف التخطي", course_id: "course-skip", teacher_id: null, term: "", capacity: 20, start_date: today(), end_date: today(), schedule: [], status: "running" });
+replaceDb(skipDb);
+createMonthlyEnrollmentWithInvoice({ student_id: "student-skip", class_id: "class-skip", monthly_price: 10_000, discount: 0, start_period: currentPeriod }, actor);
+let skipCurrent = snapshot()!;
+const skipEnrollmentId = skipCurrent.enrollments[0]!.id;
+skipMonthlyEnrollmentPeriod(skipEnrollmentId, next, "لم يدرس", actor);
+assert.equal(generateMonthlyStudentCharges(next, actor).created, 0, "skipped future month must never generate a charge");
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === next), false);
+assert.deepEqual(skipCurrent.enrollments[0]!.skipped_periods, [next]);
+restoreMonthlyEnrollmentPeriod(skipEnrollmentId, next, actor);
+assert.equal(generateMonthlyStudentCharges(next, actor).created, 1, "restored future month must become billable again");
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === next).length, 1);
+skipMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, "توقف مؤقت", actor);
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === currentPeriod), false, "unpaid generated month must be safely voided when skipped");
+restoreMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, actor);
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === currentPeriod).length, 1, "restoring a due month must recreate exactly one active charge");
+
+
+const statusDb = emptyDb();
+statusDb.users.push({ ...baseFields(), id: actor.id, username: "owner-status", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
+statusDb.students.push({ ...baseFields(), id: "student-status", code: "ST-STATUS", full_name: "طالب إيقاف", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });
+statusDb.courses.push({ ...baseFields(), id: "course-status", name: "2026-2027", code: "", level: "", hours: 0, default_price: 10_000, active: true });
+statusDb.classes.push({ ...baseFields(), id: "class-status", name: "صف الإيقاف", course_id: "course-status", teacher_id: null, term: "", capacity: 20, start_date: today(), end_date: today(), schedule: [], status: "running" });
+replaceDb(statusDb);
+createMonthlyEnrollmentWithInvoice({ student_id: "student-status", class_id: "class-status", monthly_price: 10_000, discount: 0, start_period: currentPeriod }, actor);
+setStudentOperationalStatus("student-status", "inactive", actor);
+let statusCurrent = snapshot()!;
+assert.equal(statusCurrent.students[0]!.status, "inactive");
+assert.equal(statusCurrent.enrollments[0]!.status, "withdrawn");
+assert.equal(statusCurrent.enrollments[0]!.billing_end_period, currentPeriod);
+assert.equal(generateMonthlyStudentCharges(next, actor).created, 0, "inactive student must not receive future monthly debt");
+setStudentOperationalStatus("student-status", "active", actor);
+statusCurrent = snapshot()!;
+assert.equal(statusCurrent.students[0]!.status, "active");
+assert.equal(statusCurrent.enrollments[0]!.status, "withdrawn", "reactivating student must not silently reactivate a stopped enrollment");
 
 const zeroDb = emptyDb();
 zeroDb.users.push({ ...baseFields(), id: actor.id, username: "owner-zero", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });

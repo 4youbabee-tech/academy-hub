@@ -9,8 +9,8 @@ import { money, toMinor } from "@/lib/format";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "الإعدادات — نظام إدارة المعهد" },
-      { name: "description", content: "إعدادات المعهد: الاسم، الشعار، العملة، أنواع المصاريف، الترقيم وإعدادات الإيصالات." },
+      { title: "الإعدادات — نظام إدارة المركز التعليمي" },
+      { name: "description", content: "إعدادات المركز التعليمي: الاسم، الشعار، العملة، أنواع المصاريف، الترقيم وإعدادات الإيصالات." },
     ],
   }),
   component: SettingsPage,
@@ -61,7 +61,7 @@ function SettingsPage() {
       transact((d) => {
         d.settings = { ...settings };
         d.expense_categories = expenseCategories;
-        audit(d, actor, "settings", null, "update", "تحديث إعدادات المعهد");
+        audit(d, actor, "settings", null, "update", "تحديث إعدادات المركز التعليمي");
       });
       setSuccess("تم حفظ الإعدادات بنجاح!");
       setTimeout(() => setSuccess(null), 3000);
@@ -130,7 +130,7 @@ function SettingsPage() {
     <div>
       <PageHeader
         title="الإعدادات"
-        subtitle="إدارة إعدادات المعهد الأساسية"
+        subtitle="إدارة إعدادات المركز التعليمي الأساسية"
         actions={canEdit ? <Button onClick={saveSettings}>💾 حفظ الإعدادات</Button> : null}
       />
 
@@ -138,11 +138,11 @@ function SettingsPage() {
       {success && <div className="mb-4 rounded-lg bg-success/10 p-3 text-sm text-success">{success}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* معلومات المعهد */}
+        {/* معلومات المركز التعليمي */}
         <div className="panel p-5">
-          <h2 className="mb-4 text-sm font-bold">🏢 معلومات المعهد</h2>
+          <h2 className="mb-4 text-sm font-bold">🏢 معلومات المركز التعليمي</h2>
           <div className="space-y-3">
-            <Field label="اسم المعهد">
+            <Field label="اسم المركز التعليمي">
               <Input
                 value={settings.institute_name}
                 onChange={(e) => setSettings({ ...settings, institute_name: e.target.value })}
@@ -302,7 +302,7 @@ function SettingsPage() {
 
       {/* ✅ قسم الشعار */}
       <div className="mt-6 panel p-5">
-        <h2 className="mb-4 text-sm font-bold">🖼️ شعار المعهد</h2>
+        <h2 className="mb-4 text-sm font-bold">🖼️ شعار المركز التعليمي</h2>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
           <Field label="تحميل الشعار" className="flex-1">
             <input
@@ -315,7 +315,7 @@ function SettingsPage() {
           </Field>
           {logoPreview && (
             <div className="shrink-0">
-              <img src={logoPreview} alt="شعار المعهد" className="max-h-24 w-auto rounded-lg border border-border" />
+              <img src={logoPreview} alt="شعار المركز التعليمي" className="max-h-24 w-auto rounded-lg border border-border" />
             </div>
           )}
         </div>

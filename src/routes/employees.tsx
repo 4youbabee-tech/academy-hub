@@ -11,13 +11,14 @@ import { payrollItemCost } from "@/lib/finance";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
 import { printHtmlDocument } from "@/lib/print-document";
+import { printPayrollPaymentReceipt } from "@/lib/payroll-print";
 
 export const Route = createFileRoute("/employees")({
   head: () => ({
     meta: [
-      { title: "الموظفون والرواتب — نظام إدارة المعهد" },
+      { title: "الموظفون والرواتب — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة الموظفين والمدرّسين، السلف، وكشوف الرواتب الشهرية." },
-      { property: "og:title", content: "الموظفون والرواتب — نظام إدارة المعهد" },
+      { property: "og:title", content: "الموظفون والرواتب — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "الموظفون، السلف، وكشف الرواتب الشهري." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -55,7 +56,10 @@ function EmployeesPage() {
   const [voidPayrollPaymentId, setVoidPayrollPaymentId] = useState<string | null>(null);
   const [voidPayrollReason, setVoidPayrollReason] = useState("");
   const [employeeQ, setEmployeeQ] = useState("");
+  const [payrollQ, setPayrollQ] = useState("");
+  const [payrollStatus, setPayrollStatus] = useState<"" | "paid" | "partial" | "unpaid">("");
   const debouncedEmployeeQ = useDebouncedValue(employeeQ);
+  const debouncedPayrollQ = useDebouncedValue(payrollQ);
 
   const employees = useMemo(() => {
     if (!db) return [];
@@ -68,9 +72,25 @@ function EmployeesPage() {
       .slice()
       .sort((a, b) => a.full_name.localeCompare(b.full_name, "ar"));
   }, [db, debouncedEmployeeQ]);
-  const items = useMemo(() => (db ? db.payroll_items.filter((p) => p.period === period) : []), [db, period]);
+  const items = useMemo(() => {
+    if (!db) return [];
+    const term = debouncedPayrollQ.trim().toLowerCase();
+    return db.payroll_items
+      .filter((item) => item.period === period)
+      .filter((item) => {
+        const paid = payrollPaid(db, item.id);
+        const remaining = payrollRemaining(db, item.id);
+        const status = remaining <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
+        return !payrollStatus || status === payrollStatus;
+      })
+      .filter((item) => {
+        if (!term) return true;
+        const employee = db.employees.find((row) => row.id === item.employee_id);
+        return Boolean(employee && (employee.full_name.toLowerCase().includes(term) || employee.job_title.toLowerCase().includes(term)));
+      });
+  }, [db, period, debouncedPayrollQ, payrollStatus]);
   const employeePagination = usePagination(employees, debouncedEmployeeQ);
-  const payrollPagination = usePagination(items, period);
+  const payrollPagination = usePagination(items, period + "|" + debouncedPayrollQ + "|" + payrollStatus);
 
   if (!db) return null;
   if (!allowed("payroll.view")) return <Denied />;
@@ -136,8 +156,10 @@ function EmployeesPage() {
     const amount = toMinor(payAmount);
     if (amount <= 0) return setError("مبلغ الدفعة غير صالح");
     try {
+      const paidItem = payFor;
       recordPayrollPayment(payFor.id, amount, actor, "دفعة راتب");
       setPayFor(null);
+      setPaymentHistoryFor(paidItem);
       setPayAmount("");
       setError(null);
     } catch (caught) {
@@ -192,7 +214,7 @@ function EmployeesPage() {
 <body>
   <div class="slip">
     <div class="header">
-      ${settings.logo_data_url ? `<img class="logo" src="${settings.logo_data_url}" alt="شعار المعهد" />` : ""}
+      ${settings.logo_data_url ? `<img class="logo" src="${settings.logo_data_url}" alt="شعار المركز التعليمي" />` : ""}
       <div class="institute">${escapeHtml(settings.institute_name)}</div>
       ${settings.address ? `<div class="muted">${escapeHtml(settings.address)}</div>` : ""}
       ${settings.phone ? `<div class="muted">${escapeHtml(settings.phone)}</div>` : ""}
@@ -320,8 +342,17 @@ function EmployeesPage() {
       )}
 
       <h2 className="mb-3 mt-8 text-lg font-bold">كشف الرواتب</h2>
-      <div className="mb-4 flex flex-wrap items-end gap-2">
-        <Input className="max-w-40" type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-[160px_1fr_200px_auto] lg:items-end">
+        <Field label="الشهر"><Input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
+        <Field label="بحث"><Input value={payrollQ} onChange={(e) => setPayrollQ(e.target.value)} placeholder="اسم الموظف أو الوظيفة" /></Field>
+        <Field label="حالة الدفع">
+          <Select value={payrollStatus} onChange={(e) => setPayrollStatus(e.target.value as "" | "paid" | "partial" | "unpaid")}>
+            <option value="">الكل</option>
+            <option value="paid">مدفوع بالكامل</option>
+            <option value="partial">مدفوع جزئيًا</option>
+            <option value="unpaid">غير مدفوع</option>
+          </Select>
+        </Field>
         {canEdit ? <Button onClick={generatePayroll}>توليد الكشف</Button> : null}
       </div>
       {error && !open && !advFor && !payFor ? (
@@ -358,7 +389,7 @@ function EmployeesPage() {
                   <Button variant="ghost" onClick={() => { setPaymentHistoryFor(i); setError(null); }}>الدفعات</Button>
                   {i.status === "paid" ? (
                     <Button variant="ghost" onClick={() => printSalaryReceipt(i)}>
-                      🖨️ طباعة سند
+                      🖨️ كشف الراتب الكامل
                     </Button>
                   ) : null}
                 </div>
@@ -471,7 +502,7 @@ function EmployeesPage() {
                   <tr key={payment.id} className={payment.is_void ? "opacity-60" : ""}>
                     <Td>{dateStr(payment.paid_at)}</Td><Td className="tabular-nums">{money(payment.amount, cur)}</Td><Td>{payment.note || "—"}</Td>
                     <Td>{payment.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
-                    <Td>{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</Td>
+                    <Td><div className="flex flex-wrap gap-1">{!payment.is_void ? <Button variant="ghost" onClick={() => printPayrollPaymentReceipt(currentDb, paymentHistoryFor, payment)}>🖨️ طباعة</Button> : null}{!payment.is_void && canVoidPayroll ? <Button variant="ghost" onClick={() => { setVoidPayrollPaymentId(payment.id); setVoidPayrollReason(""); }}>إلغاء</Button> : null}</div></Td>
                   </tr>
                 ))}
               </Table>

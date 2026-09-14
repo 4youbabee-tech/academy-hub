@@ -17,8 +17,15 @@ import {
 } from "../src/lib/finance";
 import { generatePayroll, payPayrollItem, recordAdvance } from "../src/lib/payroll";
 import { localDateKey } from "../src/lib/format";
+import { buildXlsx } from "../src/lib/xlsx";
 
 process.env.TZ = "Asia/Beirut";
+const xlsxBytes = buildXlsx("اختبار", [["الاسم", "القيمة"], ["طالب", 12.5]]);
+assert.equal(xlsxBytes[0], 0x50);
+assert.equal(xlsxBytes[1], 0x4b);
+assert.equal(xlsxBytes[xlsxBytes.length - 22], 0x50);
+assert.equal(xlsxBytes[xlsxBytes.length - 21], 0x4b);
+assert.ok(xlsxBytes.length > 500, "xlsx export must produce a real ZIP/OpenXML workbook");
 assert.equal(localDateKey("2026-08-22T21:30:00.000Z"), "2026-08-23", "local accounting date");
 
 const newHashA = await hashPassword("secret-123");

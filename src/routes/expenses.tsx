@@ -11,9 +11,9 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/expenses")({
   head: () => ({
     meta: [
-      { title: "المصاريف والمداخيل — نظام إدارة المعهد" },
+      { title: "المصاريف والمداخيل — نظام إدارة المركز التعليمي" },
       { name: "description", content: "المصاريف التشغيلية والمداخيل الأخرى مع عرض مالي واضح وآمن." },
-      { property: "og:title", content: "المصاريف والمداخيل — نظام إدارة المعهد" },
+      { property: "og:title", content: "المصاريف والمداخيل — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "مصاريف تشغيلية ومداخيل إضافية مع سجل تدقيق." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -116,7 +116,7 @@ function ExpensesPage() {
     <div>
       <PageHeader
         title="المصاريف والمداخيل"
-        subtitle="المصاريف التشغيلية هنا، والرواتب تُجمع تلقائيًا ضمن إجمالي مصروفات الشركة"
+        subtitle="المصاريف التشغيلية هنا، والرواتب تُجمع تلقائيًا ضمن إجمالي مصروفات المركز"
         actions={
           canEdit ? (
             <Button
@@ -135,12 +135,12 @@ function ExpensesPage() {
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="المصاريف التشغيلية" value={money(totalOperatingExpenses, cur)} tone="danger" />
         <Stat label="تكلفة الرواتب" value={money(totalPaidPayroll, cur)} tone="danger" />
-        <Stat label="إجمالي مصروفات الشركة" value={money(totalCompanyExpenses, cur)} tone="danger" />
+        <Stat label="إجمالي مصروفات المركز" value={money(totalCompanyExpenses, cur)} tone="danger" />
         <Stat label="المداخيل الأخرى" value={money(totalInc, cur)} tone="success" />
       </div>
 
       <div className="mb-4 rounded-xl border bg-muted/20 p-3 text-sm text-muted-foreground">
-        تكلفة الرواتب تشمل صافي الراتب المدفوع وأي سلفة تم تسويتها مع الراتب، وتُجمع تلقائيًا ضمن إجمالي مصروفات الشركة بدون تسجيلها مرة ثانية داخل جدول المصاريف.
+        تكلفة الرواتب تشمل صافي الراتب المدفوع وأي سلفة تم تسويتها مع الراتب، وتُجمع تلقائيًا ضمن إجمالي مصروفات المركز بدون تسجيلها مرة ثانية داخل جدول المصاريف.
       </div>
 
       <div className="mb-4 flex gap-2">

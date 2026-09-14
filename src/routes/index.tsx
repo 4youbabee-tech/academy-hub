@@ -8,9 +8,9 @@ import { profitAndLoss, studentBalanceMap } from "@/lib/finance";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "لوحة المعلومات — نظام إدارة المعهد" },
+      { title: "لوحة المعلومات — نظام إدارة المركز التعليمي" },
       { name: "description", content: "نظرة عامة على الطلاب والصفوف والمقبوضات والمصروفات والأرصدة." },
-      { property: "og:title", content: "لوحة المعلومات — نظام إدارة المعهد" },
+      { property: "og:title", content: "لوحة المعلومات — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "نظرة عامة على الطلاب والصفوف والمقبوضات والمصروفات والأرصدة." },
     ],
   }),

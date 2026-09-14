@@ -28,7 +28,6 @@ const MATRIX: Record<RoleKey, string[]> = {
     "users.create",
     "users.update",
     "users.delete",
-    "audit.view",
     "backup.*",
   ],
   accountant: [
@@ -40,7 +39,6 @@ const MATRIX: Record<RoleKey, string[]> = {
     "payroll.*",
     "expenses.*",
     "reports.*",
-    "audit.view",
   ],
   secretary: [
     "students.*",

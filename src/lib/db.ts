@@ -86,7 +86,7 @@ export function emptyDb(): DB {
   return {
     schema_version: SCHEMA_VERSION,
     settings: {
-      institute_name: "معهد النور",
+      institute_name: "المركز التعليمي",
       logo_data_url: null,
       director_name: "",
       phone: "",

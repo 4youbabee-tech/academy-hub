@@ -107,6 +107,8 @@ export interface Enrollment extends Base {
   monthly_price_snapshot?: number;
   discount_preset_id?: ID | null;
   discount_title_snapshot?: string;
+  /** Specific YYYY-MM periods intentionally excluded from billing (student did not attend). */
+  skipped_periods?: string[];
   status: "active" | "completed" | "withdrawn" | "cancelled";
 }
 
@@ -200,6 +202,11 @@ export interface PayrollPayment extends Base {
   voided_at?: string | null;
   user_id: ID | null;
   note?: string;
+  /** Immutable payroll state immediately after issuing this payment receipt. */
+  payroll_net_snapshot?: number;
+  paid_before_snapshot?: number;
+  paid_after_snapshot?: number;
+  remaining_after_snapshot?: number;
 }
 
 export interface Expense extends Base {

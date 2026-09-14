@@ -12,12 +12,16 @@ function requireOwner(db: DB, actor: Actor): void {
 }
 
 export function assertStudentUpdate(db: DB, student: Student, patch: Partial<Student>): void {
-  if (student.status === "archived" || patch.status !== "archived") return;
+  if (!patch.status || patch.status === student.status) return;
   const hasActiveEnrollment = db.enrollments.some(
     (enrollment) => enrollment.student_id === student.id && enrollment.status === "active",
   );
-  if (hasActiveEnrollment) {
+  if (!hasActiveEnrollment) return;
+  if (patch.status === "archived") {
     throw new Error("لا يمكن أرشفة الطالب لأن لديه تسجيلًا نشطًا. أنهِ أو ألغِ التسجيل أولًا.");
+  }
+  if (patch.status === "inactive" || patch.status === "graduated") {
+    throw new Error("إيقاف أو تخريج طالب لديه تسجيل نشط يجب أن يتم من شاشة الطالب حتى تتوقف الاستحقاقات المستقبلية بأمان.");
   }
 }
 

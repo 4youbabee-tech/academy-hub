@@ -215,6 +215,7 @@ function createMonthlyChargeInDb(db: DB, enrollment: Enrollment, period: string)
   if (!enrollment.billing_start_period || period < enrollment.billing_start_period) return false;
   if (enrollment.billing_end_period && period > enrollment.billing_end_period) return false;
   if (enrollment.status !== "active" && !enrollment.billing_end_period) return false;
+  if (enrollment.skipped_periods?.includes(period)) return false;
   const invoice = activeEnrollmentInvoice(db, enrollment.id);
   if (!invoice) return false;
   if (db.installments.some(
@@ -343,7 +344,7 @@ export function createMonthlyEnrollmentWithInvoice(
       discount_reason: args.discount_title?.trim() ?? "", billing_mode: "monthly",
       billing_start_period: args.start_period, billing_end_period: null,
       monthly_price_snapshot: monthlyNet, discount_preset_id: args.discount_preset_id ?? null,
-      discount_title_snapshot: args.discount_title?.trim() ?? "", status: "active",
+      discount_title_snapshot: args.discount_title?.trim() ?? "", skipped_periods: [], status: "active",
     };
     db.enrollments.push(enrollment);
     const invoice: Invoice = {
@@ -409,6 +410,7 @@ export function transitionLegacyEnrollmentToMonthly(
       monthly_price_snapshot: monthlyNet,
       discount_preset_id: args.discount_preset_id ?? null,
       discount_title_snapshot: args.discount_title?.trim() ?? "",
+      skipped_periods: [],
       status: "active",
     };
     db.enrollments.push(enrollment);
@@ -532,6 +534,54 @@ export function voidInstallment(installmentId: ID, reason: string, actor: Actor)
     installment.updated_at = installment.voided_at;
     recomputeInvoice(db, installment.invoice_id);
     audit(db, actor, "installments", installment.id, "void", `إلغاء ${installmentLabel(installment)} — ${reason.trim()}`);
+  });
+}
+
+/** Marks one month as intentionally not attended. It never deletes history. */
+export function skipMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, reason: string, actor: Actor): void {
+  assertPeriod(period);
+  if (!reason.trim()) throw new Error("سبب تخطي الشهر إلزامي");
+  transact((db) => {
+    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);
+    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");
+    if (enrollment.billing_start_period && period < enrollment.billing_start_period) {
+      throw new Error("لا يمكن تخطي شهر يسبق بداية التسجيل");
+    }
+    if (enrollment.billing_end_period && period > enrollment.billing_end_period) {
+      throw new Error("هذا الشهر خارج فترة التسجيل بعد الإيقاف");
+    }
+    if (enrollment.skipped_periods?.includes(period)) return;
+    const invoice = activeEnrollmentInvoice(db, enrollment.id);
+    if (!invoice) throw new Error("فاتورة التسجيل غير موجودة");
+    const installment = db.installments.find((item) =>
+      item.invoice_id === invoice.id && item.kind === "monthly" && item.period === period && !item.is_void,
+    );
+    if (installment) {
+      const allocated = installmentAllocationMap(db, invoice.id).get(installment.id) ?? 0;
+      if (allocated > 0) throw new Error("لا يمكن تخطي شهر عليه دفعة. ألغِ سند القبض المرتبط أولًا.");
+      installment.is_void = true;
+      installment.void_reason = "شهر متخطّى: " + reason.trim();
+      installment.voided_at = new Date().toISOString();
+      installment.updated_at = installment.voided_at;
+      recomputeInvoice(db, invoice.id);
+    }
+    enrollment.skipped_periods = [...new Set([...(enrollment.skipped_periods ?? []), period])].sort();
+    enrollment.updated_at = new Date().toISOString();
+    audit(db, actor, "enrollments", enrollment.id, "skip-month", "تخطي شهر " + period + " — " + reason.trim());
+  });
+}
+
+/** Restores a skipped month. If the period is already due, its charge is recreated immediately. */
+export function restoreMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, actor: Actor): void {
+  assertPeriod(period);
+  transact((db) => {
+    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);
+    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");
+    if (!(enrollment.skipped_periods ?? []).includes(period)) throw new Error("هذا الشهر غير متخطّى");
+    enrollment.skipped_periods = (enrollment.skipped_periods ?? []).filter((item) => item !== period);
+    enrollment.updated_at = new Date().toISOString();
+    if (period <= today().slice(0, 7)) createMonthlyChargeInDb(db, enrollment, period);
+    audit(db, actor, "enrollments", enrollment.id, "restore-month", "إعادة شهر " + period + " إلى خطة التسجيل");
   });
 }
 

@@ -2,17 +2,19 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
+import { StudentEnrollmentModal } from "@/components/StudentEnrollmentModal";
+import { StudentAnnualBillingCard } from "@/components/StudentAnnualBillingCard";
+import { Badge, Button, Empty, PageHeader, Panel, Stat, Table, Td } from "@/components/ui-kit";
 import { money, dateStr } from "@/lib/format";
-import { invoiceFinancials, studentBalance, studentMonthlyLedger, voidInstallment } from "@/lib/finance";
+import { invoiceFinancials, studentBalance } from "@/lib/finance";
 import { printReceipt } from "@/lib/receipt-print";
 
 export const Route = createFileRoute("/students/$id")({
   head: () => ({
     meta: [
-      { title: "ملف الطالب — نظام إدارة المعهد" },
+      { title: "ملف الطالب — نظام إدارة المركز التعليمي" },
       { name: "description", content: "ملف الطالب: البيانات، التسجيلات، الفواتير والإيصالات." },
-      { property: "og:title", content: "ملف الطالب — نظام إدارة المعهد" },
+      { property: "og:title", content: "ملف الطالب — نظام إدارة المركز التعليمي" },
       { property: "og:description", content: "التسجيلات وكشف الحساب المالي للطالب." },
     ],
   }),
@@ -21,15 +23,13 @@ export const Route = createFileRoute("/students/$id")({
 
 function StudentProfile() {
   const { id } = Route.useParams();
-  const { db, actor, allowed } = useApp();
-  const [voidMonthlyId, setVoidMonthlyId] = useState<string | null>(null);
-  const [voidReason, setVoidReason] = useState("");
-  const [voidError, setVoidError] = useState<string | null>(null);
+  const { db, allowed } = useApp();
+  const [enrollOpen, setEnrollOpen] = useState(false);
   if (!db) return null;
   if (!allowed("students.view")) return <Denied />;
   const currentDb = db;
   const canViewFinance = allowed("finance.view");
-  const canVoidFinance = allowed("finance.void");
+  const canEnroll = allowed("enrollments.create");
 
   const student = currentDb.students.find((s) => s.id === id);
   if (!student) return <Empty text="الطالب غير موجود." />;
@@ -45,19 +45,6 @@ function StudentProfile() {
   const payments = currentDb.payments
     .filter((p) => p.student_id === student.id)
     .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
-  const monthlyLedger = studentMonthlyLedger(currentDb, student.id);
-
-  function confirmVoidMonthly() {
-    if (!voidMonthlyId) return;
-    try {
-      voidInstallment(voidMonthlyId, voidReason, actor);
-      setVoidMonthlyId(null);
-      setVoidReason("");
-      setVoidError(null);
-    } catch (error) {
-      setVoidError((error as Error).message);
-    }
-  }
 
   function courseAndClassForInvoice(invoiceId: string): string {
     const invoice = currentDb.invoices.find((i) => i.id === invoiceId);
@@ -75,6 +62,9 @@ function StudentProfile() {
         subtitle={`الرمز ${student.code} — ${student.phone || "بدون هاتف"}`}
         actions={
           <>
+            {canEnroll && student.status === "active" ? (
+              <Button onClick={() => setEnrollOpen(true)}>+ تسجيل في صف</Button>
+            ) : null}
             <Button variant="secondary" onClick={() => window.print()}>
               طباعة كشف الحساب
             </Button>
@@ -113,10 +103,12 @@ function StudentProfile() {
         </div>
       </Panel>
 
+      <StudentAnnualBillingCard studentId={student.id} />
+
       <h2 className="mb-2 mt-6 text-sm font-bold">التسجيلات</h2>
       {enrollments.length ? (
         <Table head={canViewFinance
-          ? ["الصف", "العام الدراسي", "تاريخ التسجيل", "قيمة التسجيل", "الحالة"]
+          ? ["الصف", "العام الدراسي", "تاريخ التسجيل", "إجمالي الفاتورة الفعلية", "الحالة"]
           : ["الصف", "العام الدراسي", "تاريخ التسجيل", "الحالة"]}>
           {enrollments.map((e) => {
             const klass = currentDb.classes.find((c) => c.id === e.class_id);
@@ -134,7 +126,7 @@ function StudentProfile() {
                     : e.status === "completed"
                       ? <Badge tone="primary">منتهٍ</Badge>
                       : e.status === "withdrawn"
-                        ? <Badge tone="muted">منسحب</Badge>
+                        ? <Badge tone="muted">متوقف</Badge>
                         : <Badge tone="danger">ملغى</Badge>}
                 </Td>
               </tr>
@@ -144,39 +136,6 @@ function StudentProfile() {
       ) : (
         <Empty text="لا توجد تسجيلات." />
       )}
-
-      {canViewFinance && monthlyLedger.length ? (
-        <>
-          <h2 className="mb-2 mt-6 text-sm font-bold">تفصيل الاستحقاقات الشهرية</h2>
-          <Table head={["الشهر", "المستحق", "المدفوع", "المتبقي", "الحالة", ""]}>
-            {monthlyLedger.map((row) => (
-              <tr key={row.installment_id}>
-                <Td className="font-semibold">{row.period}</Td>
-                <Td className="tabular-nums">{money(row.amount, cur)}</Td>
-                <Td className="tabular-nums text-emerald-700">{money(row.paid, cur)}</Td>
-                <Td className={row.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.due, cur)}</Td>
-                <Td>
-                  {row.status === "paid" ? <Badge tone="success">مدفوع</Badge> : row.status === "partial" ? <Badge tone="warning">جزئي</Badge> : <Badge tone="danger">غير مدفوع</Badge>}
-                </Td>
-                <Td>
-                  {canVoidFinance && row.paid === 0 && row.due > 0 ? (
-                    <Button variant="ghost" onClick={() => { setVoidMonthlyId(row.installment_id); setVoidReason(""); setVoidError(null); }}>إلغاء الاستحقاق</Button>
-                  ) : null}
-                </Td>
-              </tr>
-            ))}
-          </Table>
-        </>
-      ) : null}
-
-      <Modal open={!!voidMonthlyId} title="إلغاء استحقاق شهري" onClose={() => setVoidMonthlyId(null)}>
-        <div className="space-y-3">
-          <p className="rounded-lg bg-muted p-3 text-sm">سيبقى الاستحقاق محفوظاً بحالة ملغاة في السجل ولن يدخل في رصيد الطالب. إذا كان عليه أي قبض، سيمنع النظام الإلغاء.</p>
-          <Field label="سبب الإلغاء"><Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="سبب واضح وإلزامي" /></Field>
-          {voidError ? <p className="text-sm font-semibold text-destructive">{voidError}</p> : null}
-          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setVoidMonthlyId(null)}>تراجع</Button><Button variant="danger" onClick={confirmVoidMonthly}>تأكيد الإلغاء</Button></div>
-        </div>
-      </Modal>
 
       {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">كشف الحساب المالي</h2> : null}
       {canViewFinance && invoices.length ? (
@@ -206,35 +165,35 @@ function StudentProfile() {
         <Empty text="لا توجد فواتير." />
       ) : null}
 
-      {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">سندات القبض</h2> : null}
+      {canViewFinance ? <h2 className="mb-2 mt-6 text-sm font-bold">سجل القبض</h2> : null}
       {canViewFinance && payments.length ? (
         <Table head={["رقم السند", "البيان / الملاحظة", "العام الدراسي / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
-          {payments.map((p) => {
-            return (
-              <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
-                <Td className="font-semibold">{p.receipt_no}</Td>
-                <Td>{p.note?.trim() || "دفعة"}</Td>
-                <Td>{courseAndClassForInvoice(p.invoice_id)}</Td>
-                <Td className="tabular-nums">{money(p.amount, cur)}</Td>
-                <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
-                <Td>{dateStr(p.paid_at)}</Td>
-                <Td>
-                  {p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}
-                </Td>
-                <Td>
-                  {!p.is_void && currentDb.invoices.find((invoice) => invoice.id === p.invoice_id)?.status !== "cancelled" ? (
-                    <Button variant="ghost" onClick={() => printReceipt(currentDb, p)}>
-                      🖨️ طباعة
-                    </Button>
-                  ) : null}
-                </Td>
-              </tr>
-            );
-          })}
+          {payments.map((p) => (
+            <tr key={p.id} className={p.is_void ? "opacity-50" : ""}>
+              <Td className="font-semibold">{p.receipt_no}</Td>
+              <Td>{p.note?.trim() || "دفعة"}</Td>
+              <Td>{courseAndClassForInvoice(p.invoice_id)}</Td>
+              <Td className="tabular-nums">{money(p.amount, cur)}</Td>
+              <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "مصرف" : "أخرى"}</Td>
+              <Td>{dateStr(p.paid_at)}</Td>
+              <Td>{p.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">مقبوض</Badge>}</Td>
+              <Td>
+                {!p.is_void && currentDb.invoices.find((invoice) => invoice.id === p.invoice_id)?.status !== "cancelled" ? (
+                  <Button variant="ghost" onClick={() => printReceipt(currentDb, p)}>🖨️ طباعة</Button>
+                ) : null}
+              </Td>
+            </tr>
+          ))}
         </Table>
       ) : canViewFinance ? (
-        <Empty text="لا توجد سندات قبض." />
+        <Empty text="لا توجد دفعات قبض." />
       ) : null}
+
+      <StudentEnrollmentModal
+        open={enrollOpen}
+        studentId={student.id}
+        onClose={() => setEnrollOpen(false)}
+      />
     </div>
   );
 }

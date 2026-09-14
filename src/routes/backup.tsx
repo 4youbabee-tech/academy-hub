@@ -11,7 +11,7 @@ import { localFileTimestamp } from "@/lib/format";
 export const Route = createFileRoute("/backup")({
   head: () => ({
     meta: [
-      { title: "النسخ الاحتياطي — نظام إدارة المعهد" },
+      { title: "النسخ الاحتياطي — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إنشاء نسخة احتياطية محلية واستعادة بيانات النظام." },
     ],
   }),
@@ -169,7 +169,7 @@ function BackupPage() {
     <div>
       <PageHeader
         title="النسخ الاحتياطي"
-        subtitle="احفظ نسخة من بيانات المعهد محلياً أو استعد نسخة سابقة عند الحاجة."
+        subtitle="احفظ نسخة من بيانات المركز التعليمي محلياً أو استعد نسخة سابقة عند الحاجة."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -178,7 +178,7 @@ function BackupPage() {
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
             {desktopApi
               ? "يتم حفظ نسخة SQLite كاملة تشمل الطلاب والتسجيلات والفواتير والإيصالات والموظفين والمستخدمين والإعدادات وسجل التدقيق."
-              : "يتم تنزيل ملف JSON يحتوي على الطلاب والدورات والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات وسجل التدقيق الحالي."}
+              : "يتم تنزيل ملف JSON يحتوي على الطلاب والأعوام الدراسية والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات وسجل التدقيق الحالي."}
           </p>
           <div className="mt-5">
             <Button onClick={exportBackup} disabled={!canExport}>

@@ -16,6 +16,7 @@ interface Ctx {
 }
 
 const AppContext = createContext<Ctx | null>(null);
+const SYSTEM_ACTOR: Actor = { id: null, name: "النظام التلقائي" };
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [db, setDb] = useState<DB | null>(null);
@@ -60,7 +61,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const activeUser = current?.users.find((item) => item.id === userId && item.is_active);
       if (!activeUser) return;
       try {
-        runMonthlyGeneration(undefined, { id: activeUser.id, name: activeUser.full_name });
+        // This is a system job, not a manual financial action by the user who happened to open the app.
+        runMonthlyGeneration(undefined, SYSTEM_ACTOR);
       } catch (error) {
         console.error("تعذر تشغيل الدورة الشهرية التلقائية", error);
       }

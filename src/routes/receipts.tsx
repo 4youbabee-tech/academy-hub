@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
+import { snapshot } from "@/lib/db";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
 import { invoiceBalance, invoiceFinancials, recordPayment, voidPayment } from "@/lib/finance";
 import { dateStr, money, toMinor } from "@/lib/format";
@@ -13,7 +14,7 @@ import { usePagination } from "@/hooks/use-pagination";
 export const Route = createFileRoute("/receipts")({
   head: () => ({
     meta: [
-      { title: "الإيصالات والفواتير — نظام إدارة المعهد" },
+      { title: "الفواتير والتحصيل — نظام إدارة المركز التعليمي" },
       { name: "description", content: "إدارة الفواتير والمقبوضات وسندات القبض من مكان واحد." },
     ],
   }),
@@ -133,7 +134,7 @@ function ReceiptsPage() {
   function submitPayment() {
     if (!payFor) return;
     try {
-      recordPayment(
+      const paymentId = recordPayment(
         {
           invoice_id: payFor,
           amount: toMinor(amount),
@@ -142,7 +143,11 @@ function ReceiptsPage() {
         },
         actor,
       );
+      const updated = snapshot();
+      const createdPayment = updated?.payments.find((payment) => payment.id === paymentId);
+      if (updated && createdPayment) printReceipt(updated, createdPayment);
       setPayFor(null);
+      setSection("invoices");
       setAmount("");
       setMethod("cash");
       setNote("");
@@ -167,12 +172,12 @@ function ReceiptsPage() {
   return (
     <div>
       <PageHeader
-        title="الإيصالات والفواتير"
-        subtitle="كل ما يخص مستحقات الطلاب والقبض في مكان واحد"
+        title="الفواتير والتحصيل"
+        subtitle="المستحق والقبض والطباعة من نفس شاشة الفاتورة"
         actions={
-          canPay && openInvoices.length > 0 ? (
-            <Button onClick={() => fillPaymentForm(openInvoices[0]?.id || null)}>+ سند قبض جديد</Button>
-          ) : null
+          <Button variant="secondary" onClick={() => setSection((current) => current === "receipts" ? "invoices" : "receipts")}>
+            {section === "receipts" ? "العودة للفواتير" : "سجل القبض"}
+          </Button>
         }
       />
 
@@ -181,15 +186,6 @@ function ReceiptsPage() {
         <Stat label="إجمالي المقبوض" value={money(totalAmount, cur)} tone="success" />
         <Stat label="إجمالي المتبقي" value={money(totalDue, cur)} tone={totalDue > 0 ? "danger" : "success"} />
         <Stat label="عدد سندات القبض" value={String(totalReceipts)} />
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
-        <Button variant={section === "invoices" ? "primary" : "ghost"} onClick={() => setSection("invoices")}>
-          الفواتير والمستحقات
-        </Button>
-        <Button variant={section === "receipts" ? "primary" : "ghost"} onClick={() => setSection("receipts")}>
-          سندات القبض
-        </Button>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-3">
@@ -325,7 +321,7 @@ function ReceiptsPage() {
         </>
       )}
 
-      <Modal open={!!payFor} title="سند قبض جديد" onClose={() => setPayFor(null)}>
+      <Modal open={!!payFor} title="قبض على الفاتورة" onClose={() => setPayFor(null)}>
         <div className="space-y-3">
           <Field label="الفاتورة / الطالب">
             <Select value={payFor || ""} onChange={(e) => fillPaymentForm(e.target.value || null)}>
@@ -373,7 +369,7 @@ function ReceiptsPage() {
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setPayFor(null)}>إلغاء</Button>
-            <Button onClick={submitPayment}>تسجيل السند</Button>
+            <Button onClick={submitPayment}>تسجيل القبض وطباعة السند</Button>
           </div>
         </div>
       </Modal>
