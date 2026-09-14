@@ -42,6 +42,9 @@ jobs:
       - name: Apply skipped-month billing and annual card phase
         run: node scripts/apply-v1.1.1-phase4.mjs
 
+      - name: Apply payroll receipt and terminology phase
+        run: node scripts/apply-v1.1.1-phase5.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
@@ -57,5 +60,5 @@ jobs:
             echo "No generated source changes to commit"
             exit 0
           fi
-          git commit -m "feat(v1.1.1): student-first registration and skipped-month billing"
+          git commit -m "feat(v1.1.1): student billing controls and payroll payment receipts"
           git push origin HEAD:academy-v1.1.1-usability-finance
