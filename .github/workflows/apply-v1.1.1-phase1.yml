@@ -1,4 +1,4 @@
-name: Apply Academy v1.1.1 phase 1
+name: Academy v1.1.1 staged verification
 
 on:
   push:
@@ -9,9 +9,10 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  verify-and-apply:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,16 +23,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
-      - name: Install dependencies
+      - name: Install exact dependencies
         run: npm ci
 
-      - name: Apply phase 1 transformations
-        run: node scripts/apply-v1.1.1-phase1.mjs
-
-      - name: Apply phase 2 terminology and navigation styling
+      - name: Apply terminology and navigation phase
         run: node scripts/apply-v1.1.1-phase2.mjs
 
       - name: Verify source
@@ -40,13 +38,13 @@ jobs:
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Commit verified changes
+      - name: Commit verified generated changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src package.json package-lock.json
           if git diff --cached --quiet; then
-            echo "No source changes to commit"
+            echo "No generated source changes to commit"
             exit 0
           fi
           git commit -m "fix(v1.1.1): center terminology and color-coded navigation"
