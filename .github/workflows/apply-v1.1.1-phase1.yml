@@ -6,23 +6,19 @@ on:
       - academy-v1.1.1-usability-finance
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: academy-v1.1.1-staged
   cancel-in-progress: true
 
 jobs:
-  verify-and-apply:
-    if: github.actor != 'github-actions[bot]'
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: academy-v1.1.1-usability-finance
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -33,41 +29,8 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
-      - name: Apply terminology and navigation phase
-        run: node scripts/apply-v1.1.1-phase2.mjs
-
-      - name: Apply student-first registration phase
-        run: node scripts/apply-v1.1.1-phase3.mjs
-
-      - name: Apply skipped-month billing and annual card phase
-        run: node scripts/apply-v1.1.1-phase4.mjs
-
-      - name: Apply payroll receipt and terminology phase
-        run: node scripts/apply-v1.1.1-phase5.mjs
-
-      - name: Apply unified invoice collection phase
-        run: node scripts/apply-v1.1.1-phase6.mjs
-
-      - name: Apply student lifecycle and export safeguards phase
-        run: node scripts/apply-v1.1.1-phase7.mjs
-
-      - name: Apply final typing and audit polish
-        run: node scripts/apply-v1.1.1-phase8.mjs
-
       - name: Verify source
         run: npm run ci:verify
 
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
-
-      - name: Commit verified generated changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src tests package.json package-lock.json
-          if git diff --cached --quiet; then
-            echo "No generated source changes to commit"
-            exit 0
-          fi
-          git commit -m "feat(v1.1.1): verified financial workflow and usability upgrade"
-          git push origin HEAD:academy-v1.1.1-usability-finance
