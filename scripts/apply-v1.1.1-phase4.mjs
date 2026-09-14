@@ -13,7 +13,6 @@ function replaceRequired(content, from, to, label) {
   return content.replace(from, to);
 }
 
-// Persist skipped billing periods on the enrollment, not on invoices, so future generation remains idempotent.
 const typesPath = "src/lib/types.ts";
 let types = read(typesPath);
 types = replaceRequired(
@@ -44,15 +43,66 @@ finance = replaceRequired(
   '      discount_title_snapshot: args.discount_title?.trim() ?? "",\n      skipped_periods: [],\n      status: "active",\n',
   "transitioned monthly enrollment skipped periods",
 );
+
+const skippedFunctions = [
+  '/** Marks one month as intentionally not attended. It never deletes history. */',
+  'export function skipMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, reason: string, actor: Actor): void {',
+  '  assertPeriod(period);',
+  '  if (!reason.trim()) throw new Error("سبب تخطي الشهر إلزامي");',
+  '  transact((db) => {',
+  '    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);',
+  '    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");',
+  '    if (enrollment.billing_start_period && period < enrollment.billing_start_period) {',
+  '      throw new Error("لا يمكن تخطي شهر يسبق بداية التسجيل");',
+  '    }',
+  '    if (enrollment.billing_end_period && period > enrollment.billing_end_period) {',
+  '      throw new Error("هذا الشهر خارج فترة التسجيل بعد الإيقاف");',
+  '    }',
+  '    if (enrollment.skipped_periods?.includes(period)) return;',
+  '    const invoice = activeEnrollmentInvoice(db, enrollment.id);',
+  '    if (!invoice) throw new Error("فاتورة التسجيل غير موجودة");',
+  '    const installment = db.installments.find((item) =>',
+  '      item.invoice_id === invoice.id && item.kind === "monthly" && item.period === period && !item.is_void,',
+  '    );',
+  '    if (installment) {',
+  '      const allocated = installmentAllocationMap(db, invoice.id).get(installment.id) ?? 0;',
+  '      if (allocated > 0) throw new Error("لا يمكن تخطي شهر عليه دفعة. ألغِ سند القبض المرتبط أولًا.");',
+  '      installment.is_void = true;',
+  '      installment.void_reason = "شهر متخطّى: " + reason.trim();',
+  '      installment.voided_at = new Date().toISOString();',
+  '      installment.updated_at = installment.voided_at;',
+  '      recomputeInvoice(db, invoice.id);',
+  '    }',
+  '    enrollment.skipped_periods = [...new Set([...(enrollment.skipped_periods ?? []), period])].sort();',
+  '    enrollment.updated_at = new Date().toISOString();',
+  '    audit(db, actor, "enrollments", enrollment.id, "skip-month", "تخطي شهر " + period + " — " + reason.trim());',
+  '  });',
+  '}',
+  '',
+  '/** Restores a skipped month. If the period is already due, its charge is recreated immediately. */',
+  'export function restoreMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, actor: Actor): void {',
+  '  assertPeriod(period);',
+  '  transact((db) => {',
+  '    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);',
+  '    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");',
+  '    if (!(enrollment.skipped_periods ?? []).includes(period)) throw new Error("هذا الشهر غير متخطّى");',
+  '    enrollment.skipped_periods = (enrollment.skipped_periods ?? []).filter((item) => item !== period);',
+  '    enrollment.updated_at = new Date().toISOString();',
+  '    if (period <= today().slice(0, 7)) createMonthlyChargeInDb(db, enrollment, period);',
+  '    audit(db, actor, "enrollments", enrollment.id, "restore-month", "إعادة شهر " + period + " إلى خطة التسجيل");',
+  '  });',
+  '}',
+  '',
+  'export function studentMonthlyLedger(db: DB, studentId: ID): MonthlyLedgerRow[] {',
+].join("\n");
 finance = replaceRequired(
   finance,
-  `export function studentMonthlyLedger(db: DB, studentId: ID): MonthlyLedgerRow[] {`,
-  `/** Marks one month as intentionally not attended. It never deletes history. */\nexport function skipMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, reason: string, actor: Actor): void {\n  assertPeriod(period);\n  if (!reason.trim()) throw new Error("سبب تخطي الشهر إلزامي");\n  transact((db) => {\n    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);\n    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");\n    if (enrollment.billing_start_period && period < enrollment.billing_start_period) {\n      throw new Error("لا يمكن تخطي شهر يسبق بداية التسجيل");\n    }\n    if (enrollment.billing_end_period && period > enrollment.billing_end_period) {\n      throw new Error("هذا الشهر خارج فترة التسجيل بعد الإيقاف");\n    }\n    if (enrollment.skipped_periods?.includes(period)) return;\n    const invoice = activeEnrollmentInvoice(db, enrollment.id);\n    if (!invoice) throw new Error("فاتورة التسجيل غير موجودة");\n    const installment = db.installments.find((item) =>\n      item.invoice_id === invoice.id && item.kind === "monthly" && item.period === period && !item.is_void,\n    );\n    if (installment) {\n      const allocated = installmentAllocationMap(db, invoice.id).get(installment.id) ?? 0;\n      if (allocated > 0) throw new Error("لا يمكن تخطي شهر عليه دفعة. ألغِ سند القبض المرتبط أولًا.");\n      installment.is_void = true;\n      installment.void_reason = \\`شهر متخطّى: \\${reason.trim()}\\`;\n      installment.voided_at = new Date().toISOString();\n      installment.updated_at = installment.voided_at;\n      recomputeInvoice(db, invoice.id);\n    }\n    enrollment.skipped_periods = [...new Set([...(enrollment.skipped_periods ?? []), period])].sort();\n    enrollment.updated_at = new Date().toISOString();\n    audit(db, actor, "enrollments", enrollment.id, "skip-month", \\`تخطي شهر \\${period} — \\${reason.trim()}\\`);\n  });\n}\n\n/** Restores a skipped month. If the period is already due, its charge is recreated immediately. */\nexport function restoreMonthlyEnrollmentPeriod(enrollmentId: ID, period: string, actor: Actor): void {\n  assertPeriod(period);\n  transact((db) => {\n    const enrollment = db.enrollments.find((item) => item.id === enrollmentId);\n    if (!enrollment || enrollment.billing_mode !== "monthly") throw new Error("التسجيل الشهري غير موجود");\n    if (!(enrollment.skipped_periods ?? []).includes(period)) throw new Error("هذا الشهر غير متخطّى");\n    enrollment.skipped_periods = (enrollment.skipped_periods ?? []).filter((item) => item !== period);\n    enrollment.updated_at = new Date().toISOString();\n    if (period <= today().slice(0, 7)) createMonthlyChargeInDb(db, enrollment, period);\n    audit(db, actor, "enrollments", enrollment.id, "restore-month", \\`إعادة شهر \\${period} إلى خطة التسجيل\\`);\n  });\n}\n\nexport function studentMonthlyLedger(db: DB, studentId: ID): MonthlyLedgerRow[] {`,
+  'export function studentMonthlyLedger(db: DB, studentId: ID): MonthlyLedgerRow[] {',
+  skippedFunctions,
   "skipped month finance functions",
 );
 write(financePath, finance);
 
-// Student profile becomes the single financial card entry point.
 const profilePath = "src/routes/students.$id.tsx";
 let profile = read(profilePath);
 profile = replaceRequired(
@@ -69,7 +119,6 @@ profile = replaceRequired(
 );
 write(profilePath, profile);
 
-// Financial invariants for skipped months: no debt, no duplicate generation, restorable history.
 const testPath = "tests/monthly-financial-harness.ts";
 let test = read(testPath);
 test = replaceRequired(
@@ -78,7 +127,33 @@ test = replaceRequired(
   '  recordPayment,\n  restoreMonthlyEnrollmentPeriod,\n  skipMonthlyEnrollmentPeriod,\n  studentMonthlyLedger,\n',
   "skip functions test imports",
 );
-const skipTest = `\nconst skipDb = emptyDb();\nskipDb.users.push({ ...baseFields(), id: actor.id, username: "owner-skip", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });\nskipDb.students.push({ ...baseFields(), id: "student-skip", code: "ST-SKIP", full_name: "طالب تخطي شهر", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });\nskipDb.courses.push({ ...baseFields(), id: "course-skip", name: "2026-2027", code: "", level: "", hours: 0, default_price: 10_000, active: true });\nskipDb.classes.push({ ...baseFields(), id: "class-skip", name: "صف التخطي", course_id: "course-skip", teacher_id: null, term: "", capacity: 20, start_date: today(), end_date: today(), schedule: [], status: "running" });\nreplaceDb(skipDb);\ncreateMonthlyEnrollmentWithInvoice({ student_id: "student-skip", class_id: "class-skip", monthly_price: 10_000, discount: 0, start_period: currentPeriod }, actor);\nlet skipCurrent = snapshot()!;\nconst skipEnrollmentId = skipCurrent.enrollments[0]!.id;\nskipMonthlyEnrollmentPeriod(skipEnrollmentId, next, "لم يدرس", actor);\nassert.equal(generateMonthlyStudentCharges(next, actor).created, 0, "skipped future month must never generate a charge");\nskipCurrent = snapshot()!;\nassert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === next), false);\nassert.deepEqual(skipCurrent.enrollments[0]!.skipped_periods, [next]);\nrestoreMonthlyEnrollmentPeriod(skipEnrollmentId, next, actor);\nassert.equal(generateMonthlyStudentCharges(next, actor).created, 1, "restored future month must become billable again");\nskipCurrent = snapshot()!;\nassert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === next).length, 1);\nskipMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, "توقف مؤقت", actor);\nskipCurrent = snapshot()!;\nassert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === currentPeriod), false, "unpaid generated month must be safely voided when skipped");\nrestoreMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, actor);\nskipCurrent = snapshot()!;\nassert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === currentPeriod).length, 1, "restoring a due month must recreate exactly one active charge");\n\n`;
+const skipTest = `
+const skipDb = emptyDb();
+skipDb.users.push({ ...baseFields(), id: actor.id, username: "owner-skip", full_name: actor.name, password_hash: "x", role: "owner", is_active: true });
+skipDb.students.push({ ...baseFields(), id: "student-skip", code: "ST-SKIP", full_name: "طالب تخطي شهر", birth_date: null, gender: "", phone: "", guardian_name: "", guardian_phone: "", mother_name: "", school_name: "", address: "", education_level: null, status: "active", archived_at: null, notes: "" });
+skipDb.courses.push({ ...baseFields(), id: "course-skip", name: "2026-2027", code: "", level: "", hours: 0, default_price: 10_000, active: true });
+skipDb.classes.push({ ...baseFields(), id: "class-skip", name: "صف التخطي", course_id: "course-skip", teacher_id: null, term: "", capacity: 20, start_date: today(), end_date: today(), schedule: [], status: "running" });
+replaceDb(skipDb);
+createMonthlyEnrollmentWithInvoice({ student_id: "student-skip", class_id: "class-skip", monthly_price: 10_000, discount: 0, start_period: currentPeriod }, actor);
+let skipCurrent = snapshot()!;
+const skipEnrollmentId = skipCurrent.enrollments[0]!.id;
+skipMonthlyEnrollmentPeriod(skipEnrollmentId, next, "لم يدرس", actor);
+assert.equal(generateMonthlyStudentCharges(next, actor).created, 0, "skipped future month must never generate a charge");
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === next), false);
+assert.deepEqual(skipCurrent.enrollments[0]!.skipped_periods, [next]);
+restoreMonthlyEnrollmentPeriod(skipEnrollmentId, next, actor);
+assert.equal(generateMonthlyStudentCharges(next, actor).created, 1, "restored future month must become billable again");
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === next).length, 1);
+skipMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, "توقف مؤقت", actor);
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").some((row) => row.period === currentPeriod), false, "unpaid generated month must be safely voided when skipped");
+restoreMonthlyEnrollmentPeriod(skipEnrollmentId, currentPeriod, actor);
+skipCurrent = snapshot()!;
+assert.equal(studentMonthlyLedger(skipCurrent, "student-skip").filter((row) => row.period === currentPeriod).length, 1, "restoring a due month must recreate exactly one active charge");
+
+`;
 test = replaceRequired(
   test,
   'const zeroDb = emptyDb();\n',
