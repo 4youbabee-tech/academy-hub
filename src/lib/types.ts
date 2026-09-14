@@ -29,6 +29,8 @@ export interface Settings {
   academic_year: string;
   receipt_prefix: string;
   receipt_next: number;
+  payroll_receipt_prefix: string;
+  payroll_receipt_next: number;
   student_code_prefix: string;
   student_code_next: number;
   receipt_show_logo: boolean;
@@ -137,9 +139,17 @@ export interface Installment extends Base {
   voided_at?: string | null;
 }
 
+export interface PaymentAllocation {
+  installment_id: ID;
+  amount: number;
+}
+
 export interface Payment extends Base {
   invoice_id: ID;
+  /** Legacy single-target field. New receipts persist exact allocations below. */
   installment_id: ID | null;
+  /** Exact immutable distribution of this receipt over invoice installments/months. */
+  allocations?: PaymentAllocation[];
   student_id: ID;
   receipt_no: string;
   amount: number;
@@ -202,6 +212,9 @@ export interface PayrollPayment extends Base {
   voided_at?: string | null;
   user_id: ID | null;
   note?: string;
+  /** Multiple month allocations created by one payout share these immutable settlement identifiers. */
+  settlement_id?: ID | null;
+  settlement_no?: string;
   /** Immutable payroll state immediately after issuing this payment receipt. */
   payroll_net_snapshot?: number;
   paid_before_snapshot?: number;
