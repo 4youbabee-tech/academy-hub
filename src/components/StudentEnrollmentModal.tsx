@@ -63,13 +63,14 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
   if (!db || !studentId) return null;
   const student = db.students.find((item) => item.id === studentId);
   if (!student) return null;
-  const cur = db.settings.currency;
+  const currentDb = db;
+  const currentStudent = student;
+  const cur = currentDb.settings.currency;
   const canEnroll = allowed("enrollments.create");
 
   function changeCourse(courseId: string) {
-    if (!db) return;
-    const course = db.courses.find((item) => item.id === courseId);
-    const firstClass = db.classes.find((klass) => klass.course_id === courseId && klass.status === "running");
+    const course = currentDb.courses.find((item) => item.id === courseId);
+    const firstClass = currentDb.classes.find((klass) => klass.course_id === courseId && klass.status === "running");
     setForm((current) => ({
       ...current,
       course_id: courseId,
@@ -85,17 +86,17 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
     if (!canEnroll) return setError("لا تملك صلاحية تسجيل الطلاب");
     if (!form.course_id) return setError("اختر العام الدراسي");
     if (!form.class_id) return setError("اختر الصف");
-    const klass = db.classes.find((item) => item.id === form.class_id);
+    const klass = currentDb.classes.find((item) => item.id === form.class_id);
     if (!klass || klass.course_id !== form.course_id || klass.status !== "running") {
       return setError("الصف المختار غير متاح للتسجيل ضمن هذا العام الدراسي");
     }
-    const preset = db.settings.discount_presets.find(
+    const preset = currentDb.settings.discount_presets.find(
       (item) => item.id === form.discount_preset_id && item.active,
     );
     try {
       createMonthlyEnrollmentWithInvoice(
         {
-          student_id: student.id,
+          student_id: currentStudent.id,
           class_id: form.class_id,
           monthly_price: toMinor(form.price),
           discount: toMinor(form.discount),
@@ -117,11 +118,11 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
   const netMonthly = Math.max(0, toMinor(form.price) - toMinor(form.discount));
 
   return (
-    <Modal open={open} title={`تسجيل الطالب — ${student.full_name}`} onClose={onClose} wide>
+    <Modal open={open} title={`تسجيل الطالب — ${currentStudent.full_name}`} onClose={onClose} wide>
       <div className="space-y-4">
         <div className="rounded-xl border bg-muted/20 p-3 text-sm">
-          <p><b>الطالب:</b> {student.full_name}</p>
-          <p className="text-xs text-muted-foreground">{student.code}</p>
+          <p><b>الطالب:</b> {currentStudent.full_name}</p>
+          <p className="text-xs text-muted-foreground">{currentStudent.code}</p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -162,7 +163,7 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
               value={form.discount_preset_id}
               onChange={(e) => {
                 const id = e.target.value;
-                const preset = db.settings.discount_presets.find((item) => item.id === id && item.active);
+                const preset = currentDb.settings.discount_presets.find((item) => item.id === id && item.active);
                 setForm({
                   ...form,
                   discount_preset_id: id,
@@ -172,7 +173,7 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
               }}
             >
               <option value="">بدون خصم جاهز</option>
-              {db.settings.discount_presets.filter((item) => item.active).map((item) => (
+              {currentDb.settings.discount_presets.filter((item) => item.active).map((item) => (
                 <option key={item.id} value={item.id}>{item.title} — {money(item.amount, cur)}</option>
               ))}
             </Select>
