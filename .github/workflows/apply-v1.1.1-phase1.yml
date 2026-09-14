@@ -1,4 +1,4 @@
-name: Academy v1.1.1 staged verification
+name: Academy v1.1.1 final polish
 
 on:
   push:
@@ -6,19 +6,23 @@ on:
       - academy-v1.1.1-usability-finance
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: academy-v1.1.1-staged
+  group: academy-v1.1.1-final-polish
   cancel-in-progress: true
 
 jobs:
-  verify:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: academy-v1.1.1-usability-finance
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -29,8 +33,23 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Apply final terminology and payroll filters
+        run: node scripts/final-v1.1.1-polish.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Commit verified polish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src tests package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No final polish changes to commit"
+            exit 0
+          fi
+          git commit -m "polish(v1.1.1): finalize terminology and payroll filtering"
+          git push origin HEAD:academy-v1.1.1-usability-finance
