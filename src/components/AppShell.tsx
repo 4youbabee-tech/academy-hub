@@ -1,9 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useApp } from "@/lib/session";
 import { Badge, Button, Input, Modal, Panel, Table, Td } from "@/components/ui-kit";
 import { FirstRunOwnerSetup } from "@/components/FirstRunOwnerSetup";
 import { HelpGuide } from "@/components/HelpGuide";
+import { StudentCardModal } from "@/components/StudentCardModal";
 import { ROLE_LABELS, can } from "@/lib/permissions";
 import { studentMonthlyLedger } from "@/lib/finance";
 import { localMonthKey, money } from "@/lib/format";
@@ -84,6 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [studentCardId, setStudentCardId] = useState<string | null>(null);
   const arrears = useMemo(() => {
     if (!db || !can(user?.role, "finance.view")) return [];
     const currentMonth = localMonthKey();
@@ -94,6 +96,31 @@ export function AppShell({ children }: { children: ReactNode }) {
       return [{ student, total, overdue }];
     }).sort((a, b) => b.total - a.total || a.student.full_name.localeCompare(b.student.full_name, "ar"));
   }, [db, user?.role]);
+
+  useEffect(() => {
+    const openStudentCard = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const anchor = event.target.closest("a");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href) return;
+      let url: URL;
+      try {
+        url = new URL(href, window.location.href);
+      } catch {
+        return;
+      }
+      if (url.origin !== window.location.origin) return;
+      const match = url.pathname.match(/^\/students\/([^/]+)\/?$/);
+      if (!match) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setNotificationsOpen(false);
+      setStudentCardId(decodeURIComponent(match[1]));
+    };
+    document.addEventListener("click", openStudentCard, true);
+    return () => document.removeEventListener("click", openStudentCard, true);
+  }, []);
 
   if (!db) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">جارٍ تحميل قاعدة البيانات المحلية…</div>;
   if (db.users.length === 0) return <FirstRunOwnerSetup />;
@@ -135,6 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Modal open={notificationsOpen} title="تنبيهات المتأخرات" onClose={() => setNotificationsOpen(false)} extraWide>
         {arrears.length ? <Table head={["الطالب", "إجمالي المتأخر", "التفصيل", ""]}>{arrears.map(({ student, total, overdue }) => <tr key={student.id}><Td className="font-semibold">{student.full_name}</Td><Td className="tabular-nums text-destructive">{money(total, db.settings.currency)}</Td><Td className="text-xs">{overdue.map((row) => { const [year, month] = row.period.split("-"); return `${Number(month)} / ${year}: ${money(row.due, db.settings.currency)}`; }).join("، ")}</Td><Td><Link to="/students/$id" params={{ id: student.id }} onClick={() => setNotificationsOpen(false)} className="font-semibold text-primary hover:underline">فتح البطاقة</Link></Td></tr>)}</Table> : <div className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">لا توجد متأخرات من أشهر سابقة.</div>}
       </Modal>
+      <StudentCardModal studentId={studentCardId} open={!!studentCardId} onClose={() => setStudentCardId(null)} />
       <Modal open={helpOpen} title="كيفية العمل على البرنامج" onClose={() => setHelpOpen(false)} extraWide><HelpGuide /></Modal>
     </div>
   );
