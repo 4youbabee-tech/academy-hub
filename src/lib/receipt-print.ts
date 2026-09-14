@@ -4,7 +4,7 @@ import { receiptGroupRows } from "./student-settlement";
 import type { DB, Installment, Payment } from "./types";
 
 function esc(v: unknown): string {
-  return String(v ?? "").replace(/[&<>\"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 }
 
 function paymentOrder(a: Payment, b: Payment): number {
