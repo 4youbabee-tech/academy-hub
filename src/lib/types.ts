@@ -29,8 +29,8 @@ export interface Settings {
   academic_year: string;
   receipt_prefix: string;
   receipt_next: number;
-  payroll_receipt_prefix: string;
-  payroll_receipt_next: number;
+  payroll_receipt_prefix?: string;
+  payroll_receipt_next?: number;
   student_code_prefix: string;
   student_code_next: number;
   receipt_show_logo: boolean;
