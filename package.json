@@ -20,10 +20,11 @@
     "test:domain": "node --import tsx tests/domain-harness.ts",
     "test:monthly-finance": "node --import tsx tests/monthly-financial-harness.ts",
     "test:settlements": "node --import tsx tests/settlement-harness.ts",
+    "test:security": "node --import tsx tests/security-harness.ts",
     "test:desktop": "node --check desktop/main.mjs && node --check desktop/preload.cjs && node tests/desktop-harness.mjs",
     "lint": "eslint .",
     "check": "npm run typecheck && npm run lint && npm run build",
-    "ci:verify": "npm run typecheck && npm run lint && npm run test:domain && npm run test:monthly-finance && npm run test:settlements && npm run test:desktop && npm run build",
+    "ci:verify": "npm run typecheck && npm run lint && npm run test:domain && npm run test:monthly-finance && npm run test:settlements && npm run test:security && npm run test:desktop && npm run build",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -107,29 +108,12 @@
     "appId": "com.academyhub.desktop",
     "productName": "Academy Hub",
     "asar": true,
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "desktop/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": ".output",
-        "to": "web"
-      }
-    ],
+    "directories": { "output": "release" },
+    "files": ["desktop/**/*", "package.json"],
+    "extraResources": [{ "from": ".output", "to": "web" }],
     "win": {
       "icon": "public/favicon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "artifactName": "Academy-Hub-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
