@@ -4,7 +4,7 @@ import { printHtmlDocument } from "./print-document";
 import type { DB, Installment, Invoice } from "./types";
 
 function esc(value: unknown): string {
-  return String(value ?? "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]!);
+  return String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]!);
 }
 
 function installmentLabel(item: Installment): string {
