@@ -19,13 +19,8 @@ export const Route = createFileRoute("/courses")({
   component: CoursesPage,
 });
 
-function academicYearNow(): string {
-  const year = new Date().getFullYear();
-  return `${year}-${year + 1}`;
-}
-
 function emptyYearForm() {
-  return { name: academicYearNow(), code: "", level: "", hours: "0", price: "0", active: true };
+  return { name: "", code: "", level: "", hours: "0", price: "0", active: true };
 }
 
 function CoursesPage() {
@@ -77,9 +72,6 @@ function CoursesPage() {
   function save() {
     const name = form.name.trim();
     if (!name) return setError("اسم العام الدراسي إلزامي");
-    if (!/^\d{4}-\d{4}$/.test(name)) return setError("صيغة العام الدراسي يجب أن تكون مثل 2026-2027");
-    const [startText, endText] = name.split("-");
-    if (Number(endText) !== Number(startText) + 1) return setError("العام الدراسي يجب أن يكون سنتين متتاليتين");
     if (currentDb.courses.some((course) => course.id !== editing?.id && course.name.trim() === name)) {
       return setError("هذا العام الدراسي موجود مسبقًا");
     }
@@ -108,7 +100,7 @@ function CoursesPage() {
     <div>
       <PageHeader
         title="العام الدراسي"
-        subtitle={`${rows.length} من ${currentDb.courses.length} عام دراسي`}
+        subtitle={`${rows.length} من ${currentDb.courses.length} مجموعة عام دراسي — مثل ابتدائي أو متوسط`}
         actions={canEdit ? <Button onClick={openNew}>+ عام دراسي جديد</Button> : null}
       />
 
@@ -137,7 +129,7 @@ function CoursesPage() {
       <Modal open={open} title={editing ? "تعديل عام دراسي" : "عام دراسي جديد"} onClose={() => setOpen(false)}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="اسم العام الدراسي">
-            <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={academicYearNow()} />
+            <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="مثال: ابتدائي أو متوسط" />
           </Field>
           <Field label={`القسط الشهري الافتراضي (${cur})`}>
             <Input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} />
@@ -149,7 +141,7 @@ function CoursesPage() {
             </Select>
           </Field>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">عند إنشاء عام جديد يقترح النظام السنة الحالية تلقائيًا، ويمكن تعديلها عند الحاجة.</p>
+        <p className="mt-3 text-xs text-muted-foreground">هذا الحقل اسم للمجموعة الدراسية، وليس تاريخًا إلزاميًا. يمكنك استخدام أسماء مثل ابتدائي، متوسط، ثانوي أو أي تسمية يعتمدها المركز.</p>
         {error ? <p className="mt-3 text-sm font-semibold text-destructive">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>إلغاء</Button>

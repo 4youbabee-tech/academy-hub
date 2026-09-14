@@ -21,7 +21,6 @@ export function printReceipt(db: DB, payment: Payment): void {
   const s = db.settings;
   const student = db.students.find((x) => x.id === payment.student_id);
   const invoice = db.invoices.find((i) => i.id === payment.invoice_id);
-  if (payment.is_void || invoice?.status === "cancelled") return;
   const enrollment = db.enrollments.find((e) => e.id === invoice?.enrollment_id);
   const klass = db.classes.find((c) => c.id === enrollment?.class_id);
   const course = db.courses.find((c) => c.id === klass?.course_id);
@@ -29,7 +28,7 @@ export function printReceipt(db: DB, payment: Payment): void {
 
   // نحسب الرصيد كما كان مباشرة بعد هذا السند، وليس الرصيد الحالي بعد دفعات لاحقة.
   const validPayments = db.payments
-    .filter((p) => p.invoice_id === payment.invoice_id && !p.is_void)
+    .filter((p) => p.invoice_id === payment.invoice_id && (!p.is_void || p.id === payment.id))
     .slice()
     .sort(paymentOrder);
 
@@ -68,7 +67,9 @@ export function printReceipt(db: DB, payment: Payment): void {
     <div class="title">${esc(s.institute_name)}</div>
     <div class="sub">${esc(s.address)}</div>
     <div class="sub">${esc(s.phone)}</div>
-    <div class="kind">سند قبض</div>
+    <div class="kind">${payment.is_void || invoice?.status === "cancelled" ? "نسخة سند قبض تاريخي" : "سند قبض"}</div>
+    ${payment.is_void ? `<div style="margin-top:8px;padding:8px;border:2px solid #b91c1c;color:#b91c1c;font-weight:800;border-radius:8px;">السند ملغى — ${esc(payment.void_reason || "بدون سبب مسجل")}${payment.voided_at ? ` — ${esc(new Date(payment.voided_at).toLocaleString("ar-EG"))}` : ""}</div>` : ""}
+    ${!payment.is_void && invoice?.status === "cancelled" ? `<div style="margin-top:8px;padding:8px;border:2px solid #b45309;color:#92400e;font-weight:800;border-radius:8px;">الفاتورة المرتبطة بهذا السند ملغاة — هذه نسخة تاريخية لإعادة الطباعة فقط</div>` : ""}
   </div>
   ${row("رقم السند", payment.receipt_no)}
   ${row("التاريخ", new Date(payment.paid_at).toLocaleString("ar-EG"))}

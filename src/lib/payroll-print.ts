@@ -1,5 +1,5 @@
 import type { DB, PayrollItem, PayrollPayment } from "./types";
-import { dateStr, money } from "./format";
+import { dateStr, money, numericMonthPeriodLabel } from "./format";
 import { printHtmlDocument } from "./print-document";
 
 function escapeHtml(value: unknown): string {
@@ -14,7 +14,7 @@ function escapeHtml(value: unknown): string {
 
 function historicalPaidBefore(db: DB, item: PayrollItem, payment: PayrollPayment): number {
   const rows = db.payroll_payments
-    .filter((row) => row.payroll_item_id === item.id && !row.is_void)
+    .filter((row) => row.payroll_item_id === item.id && (!row.is_void || row.id === payment.id))
     .slice()
     .sort((a, b) => a.paid_at.localeCompare(b.paid_at) || a.created_at.localeCompare(b.created_at));
   let total = 0;
@@ -26,7 +26,6 @@ function historicalPaidBefore(db: DB, item: PayrollItem, payment: PayrollPayment
 }
 
 export function printPayrollPaymentReceipt(db: DB, item: PayrollItem, payment: PayrollPayment): void {
-  if (payment.is_void) throw new Error("لا يمكن طباعة دفعة راتب ملغاة كسند ساري");
   const employee = db.employees.find((row) => row.id === item.employee_id);
   const settings = db.settings;
   const paidBefore = payment.paid_before_snapshot ?? historicalPaidBefore(db, item, payment);
@@ -66,13 +65,14 @@ export function printPayrollPaymentReceipt(db: DB, item: PayrollItem, payment: P
       <div class="center-name">${escapeHtml(settings.institute_name)}</div>
       ${settings.address ? `<div class="muted">${escapeHtml(settings.address)}</div>` : ""}
       ${settings.phone ? `<div class="muted">${escapeHtml(settings.phone)}</div>` : ""}
-      <div class="title">سند صرف دفعة راتب</div>
+      <div class="title">${payment.is_void ? "نسخة سند صرف راتب ملغى" : "سند صرف دفعة راتب"}</div>
       <div class="muted">مرجع: ${escapeHtml(reference)}</div>
+      ${payment.is_void ? `<div style="margin-top:8px;padding:8px;border:2px solid #b91c1c;color:#b91c1c;font-weight:800;border-radius:8px;">ملغى — ${escapeHtml(payment.void_reason || "بدون سبب مسجل")}${payment.voided_at ? ` — ${escapeHtml(dateStr(payment.voided_at))}` : ""}</div>` : ""}
     </div>
 
     <div class="row"><span>الموظف</span><b>${escapeHtml(employeeName)}</b></div>
     <div class="row"><span>المسمى الوظيفي</span><b>${escapeHtml(jobTitle)}</b></div>
-    <div class="row"><span>شهر الراتب</span><b>${escapeHtml(item.period)}</b></div>
+    <div class="row"><span>شهر الراتب</span><b>${escapeHtml(numericMonthPeriodLabel(item.period))}</b></div>
     <div class="row"><span>تاريخ الدفعة</span><b>${escapeHtml(dateStr(payment.paid_at))}</b></div>
     <div class="row"><span>صافي الراتب المستحق</span><b>${escapeHtml(money(netSnapshot, settings.currency))}</b></div>
     <div class="row"><span>المدفوع قبل هذه الدفعة</span><b>${escapeHtml(money(paidBefore, settings.currency))}</b></div>
