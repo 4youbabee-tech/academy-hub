@@ -21,7 +21,8 @@ function columnName(index: number): string {
 }
 
 function sanitizeSheetName(name: string): string {
-  const cleaned = name.replace(/[\\/*?:\[\]]/g, " ").trim() || "Report";
+  const forbidden = new Set(["\\", "/", "*", "?", ":", "[", "]"]);
+  const cleaned = [...name].map((char) => (forbidden.has(char) ? " " : char)).join("").trim() || "Report";
   return cleaned.slice(0, 31);
 }
 
