@@ -45,6 +45,9 @@ jobs:
       - name: Apply payroll receipt and terminology phase
         run: node scripts/apply-v1.1.1-phase5.mjs
 
+      - name: Apply unified invoice collection phase
+        run: node scripts/apply-v1.1.1-phase6.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
@@ -60,5 +63,5 @@ jobs:
             echo "No generated source changes to commit"
             exit 0
           fi
-          git commit -m "feat(v1.1.1): student billing controls and payroll payment receipts"
+          git commit -m "feat(v1.1.1): verified financial workflow and usability upgrade"
           git push origin HEAD:academy-v1.1.1-usability-finance
