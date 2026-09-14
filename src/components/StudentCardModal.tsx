@@ -63,7 +63,7 @@ export function StudentCardModal({ studentId, open, onClose }: Props) {
             <p className="text-sm text-muted-foreground">{student.code} — {student.education_level || "بدون مستوى"}</p>
             <p className="mt-1 text-lg font-extrabold">{student.full_name}</p>
           </div>
-          {allowed("finance.view") ? <Button variant="secondary" onClick={() => printStudentStatement(currentDb, student)}>🖨️ طباعة كشف الطالب</Button> : null}
+          {allowed("finance.view") ? <Button variant="secondary" onClick={() => printStudentStatement(currentDb, student.id)}>🖨️ طباعة كشف الطالب</Button> : null}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
