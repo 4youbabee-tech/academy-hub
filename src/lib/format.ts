@@ -41,6 +41,34 @@ export function localMonthKey(value: string | Date = new Date()): string {
   return localDateKey(value).slice(0, 7);
 }
 
+/** Displays a stored YYYY-MM accounting period using numeric month/year only. */
+export function numericMonthPeriodLabel(period: string | null | undefined): string {
+  if (!period) return "—";
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  if (!match) return period;
+  return `${Number(match[2])} / ${match[1]}`;
+}
+
+export function periodMonth(period: string): number {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  return match ? Number(match[2]) : 1;
+}
+
+export function periodYear(period: string): number {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  return match ? Number(match[1]) : new Date().getFullYear();
+}
+
+export function withPeriodMonth(period: string, month: number): string {
+  const safeMonth = Math.min(12, Math.max(1, Math.trunc(month)));
+  return `${periodYear(period)}-${pad2(safeMonth)}`;
+}
+
+export function withPeriodYear(period: string, year: number): string {
+  const safeYear = Number.isFinite(year) ? Math.trunc(year) : new Date().getFullYear();
+  return `${safeYear}-${pad2(periodMonth(period))}`;
+}
+
 /** Local timestamp safe for backup filenames. */
 export function localFileTimestamp(value: Date = new Date()): string {
   return `${localDateKey(value)}_${pad2(value.getHours())}-${pad2(value.getMinutes())}-${pad2(value.getSeconds())}`;

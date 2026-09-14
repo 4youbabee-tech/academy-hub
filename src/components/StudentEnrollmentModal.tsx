@@ -3,6 +3,7 @@ import { useApp } from "@/lib/session";
 import { Button, Field, Input, Modal, Select } from "@/components/ui-kit";
 import { createMonthlyEnrollmentWithInvoice } from "@/lib/finance";
 import { fromMinor, localMonthKey, money, toMinor } from "@/lib/format";
+import { MonthYearPicker } from "@/components/MonthYearPicker";
 
 interface StudentEnrollmentModalProps {
   open: boolean;
@@ -190,13 +191,7 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
             />
           </Field>
 
-          <Field label="بداية الاستحقاق الشهري">
-            <Input
-              type="month"
-              value={form.start_period}
-              onChange={(e) => setForm({ ...form, start_period: e.target.value })}
-            />
-          </Field>
+          <MonthYearPicker period={form.start_period} onChange={(start_period) => setForm({ ...form, start_period })} />
 
           <Field label={`رسوم تسجيل لمرة واحدة (${cur})`}>
             <Input

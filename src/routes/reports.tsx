@@ -8,6 +8,9 @@ import { localMonthKey, money, today } from "@/lib/format";
 import { payrollPaid, payrollRemaining } from "@/lib/payroll";
 import { downloadXlsx } from "@/lib/xlsx";
 import { usePagination } from "@/hooks/use-pagination";
+import { MonthYearPicker } from "@/components/MonthYearPicker";
+import { printReceipt } from "@/lib/receipt-print";
+import { printPayrollPaymentReceipt } from "@/lib/payroll-print";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -88,7 +91,12 @@ function ReportsPage() {
       const status: Exclude<PaymentStatus, "all"> = due <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
       if (paymentStatus !== "all" && status !== paymentStatus) return [];
       if (term && !student.full_name.toLowerCase().includes(term) && !student.code.toLowerCase().includes(term)) return [];
-      return [{ student, amount, paid, due, priorDue, status }];
+      const invoiceIds = new Set(current.map((row) => row.invoice_id));
+      const latestReceipt = db.payments
+        .filter((payment) => invoiceIds.has(payment.invoice_id) && !payment.is_void)
+        .slice()
+        .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))[0];
+      return [{ student, amount, paid, due, priorDue, status, latestReceipt }];
     }).sort((a, b) => b.due - a.due || a.student.full_name.localeCompare(b.student.full_name, "ar"));
   }, [db, type, reportMonth, paymentStatus, studentQuery]);
 
@@ -102,7 +110,11 @@ function ReportsPage() {
         const paid = payrollPaid(db, item.id);
         const remaining = payrollRemaining(db, item.id);
         const status: Exclude<PaymentStatus, "all"> = remaining <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
-        return { item, employee, paid, remaining, status };
+        const latestPayment = db.payroll_payments
+          .filter((payment) => payment.payroll_item_id === item.id && !payment.is_void)
+          .slice()
+          .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))[0];
+        return { item, employee, paid, remaining, status, latestPayment };
       })
       .filter((row) => payrollStatus === "all" || row.status === payrollStatus)
       .filter((row) => {
@@ -227,7 +239,7 @@ function ReportsPage() {
 
           {type === "monthly-status" ? (
             <>
-              <Field label="الشهر"><Input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} /></Field>
+              <MonthYearPicker period={reportMonth} onChange={setReportMonth} />
               <Field label="الحالة">
                 <Select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}>
                   <option value="all">الكل</option>
@@ -242,7 +254,7 @@ function ReportsPage() {
 
           {type === "payroll" ? (
             <>
-              <Field label="الشهر"><Input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} /></Field>
+              <MonthYearPicker period={reportMonth} onChange={setReportMonth} />
               <Field label="الحالة">
                 <Select value={payrollStatus} onChange={(e) => setPayrollStatus(e.target.value as PaymentStatus)}>
                   <option value="all">الكل</option>
@@ -307,7 +319,12 @@ function ReportsPage() {
                     <Td className={row.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.due, cur)}</Td>
                     <Td className={row.priorDue > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.priorDue, cur)}</Td>
                     <Td>{row.status === "paid" ? "مدفوع بالكامل" : row.status === "partial" ? "مدفوع جزئيًا" : "غير مدفوع"}</Td>
-                    <Td className="no-print"><Link to="/students/$id" params={{ id: row.student.id }} className="text-primary hover:underline">فتح البطاقة</Link></Td>
+                    <Td className="no-print">
+                      <div className="flex flex-wrap gap-1">
+                        {row.latestReceipt ? <Button variant="secondary" onClick={() => printReceipt(db, row.latestReceipt!)}>🖨️ آخر سند</Button> : null}
+                        <Link to="/students/$id" params={{ id: row.student.id }} className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-semibold text-primary hover:bg-muted">فتح البطاقة</Link>
+                      </div>
+                    </Td>
                   </tr>
                 ))}
               </Table>
@@ -354,7 +371,7 @@ function ReportsPage() {
           </div>
           {payrollRows.length ? (
             <>
-              <Table head={["الموظف", "الشهر", "الأساسي", "الإضافات", "الحسميات", "السلف", "الصافي", "المدفوع", "المتبقي", "الحالة"]}>
+              <Table head={["الموظف", "الشهر", "الأساسي", "الإضافات", "الحسميات", "السلف", "الصافي", "المدفوع", "المتبقي", "الحالة", ""]}>
                 {payrollPagination.rows.map((row) => (
                   <tr key={row.item.id}>
                     <Td className="font-semibold">{row.employee?.full_name || "—"}</Td>
@@ -367,6 +384,7 @@ function ReportsPage() {
                     <Td className="tabular-nums text-emerald-700">{money(row.paid, cur)}</Td>
                     <Td className={row.remaining > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(row.remaining, cur)}</Td>
                     <Td>{row.status === "paid" ? "مدفوع بالكامل" : row.status === "partial" ? "مدفوع جزئيًا" : "غير مدفوع"}</Td>
+                    <Td className="no-print">{row.latestPayment ? <Button variant="secondary" onClick={() => printPayrollPaymentReceipt(db, row.item, row.latestPayment!)}>🖨️ آخر سند</Button> : null}</Td>
                   </tr>
                 ))}
               </Table>

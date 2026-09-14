@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
-import { snapshot } from "@/lib/db";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
 import { invoiceBalance, invoiceFinancials, recordPayment, voidPayment } from "@/lib/finance";
 import { dateStr, money, toMinor } from "@/lib/format";
@@ -38,6 +37,8 @@ function ReceiptsPage() {
   const [error, setError] = useState<string | null>(null);
   const [voidFor, setVoidFor] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [printAfterPaymentId, setPrintAfterPaymentId] = useState<string | null>(null);
+  const [invoiceReceiptsFor, setInvoiceReceiptsFor] = useState<string | null>(null);
   const debouncedQ = useDebouncedValue(q);
 
   const openInvoices = useMemo(
@@ -122,6 +123,25 @@ function ReceiptsPage() {
   const currentClass = currentEnrollment ? currentDb.classes.find((k) => k.id === currentEnrollment.class_id) ?? null : null;
   const currentCourse = currentClass ? currentDb.courses.find((c) => c.id === currentClass.course_id) ?? null : null;
   const invoiceRemaining = currentInvoice ? invoiceBalance(currentDb, currentInvoice.id) : 0;
+  const justCreatedPayment = printAfterPaymentId
+    ? currentDb.payments.find((payment) => payment.id === printAfterPaymentId)
+    : undefined;
+  const receiptHistoryInvoice = invoiceReceiptsFor
+    ? currentDb.invoices.find((invoice) => invoice.id === invoiceReceiptsFor)
+    : undefined;
+  const receiptHistoryRows = invoiceReceiptsFor
+    ? currentDb.payments
+        .filter((payment) => payment.invoice_id === invoiceReceiptsFor)
+        .slice()
+        .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))
+    : [];
+
+  function paymentsForInvoice(invoiceId: string) {
+    return currentDb.payments
+      .filter((payment) => payment.invoice_id === invoiceId)
+      .slice()
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at));
+  }
 
   function fillPaymentForm(invoiceId: string | null) {
     setPayFor(invoiceId);
@@ -143,9 +163,7 @@ function ReceiptsPage() {
         },
         actor,
       );
-      const updated = snapshot();
-      const createdPayment = updated?.payments.find((payment) => payment.id === paymentId);
-      if (updated && createdPayment) printReceipt(updated, createdPayment);
+      setPrintAfterPaymentId(paymentId);
       setPayFor(null);
       setSection("invoices");
       setAmount("");
@@ -217,36 +235,46 @@ function ReceiptsPage() {
         ) : (
           <>
           <Table head={["الفاتورة", "الطالب", "العام الدراسي / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
-            {invoicePagination.rows.map(({ inv, student, course, klass, balance, paid }) => (
-              <tr key={inv.id}>
-                <Td className="font-semibold">{inv.number}</Td>
-                <Td>
-                  <Link to="/students/$id" params={{ id: inv.student_id }} className="font-semibold text-primary hover:underline">
-                    {student?.full_name || "—"}
-                  </Link>
-                </Td>
-                <Td>{course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : "—"}</Td>
-                <Td className="tabular-nums">{money(inv.total, cur)}</Td>
-                <Td className="tabular-nums text-emerald-700">{money(paid, cur)}</Td>
-                <Td className={balance > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(balance, cur)}</Td>
-                <Td>
-                  {inv.status === "paid" ? (
-                    <Badge tone="success">مسددة</Badge>
-                  ) : inv.status === "cancelled" ? (
-                    <Badge tone="danger">ملغاة</Badge>
-                  ) : (
-                    <Badge tone="primary">عليها رصيد</Badge>
-                  )}
-                </Td>
-                <Td>
-                  {canPay && inv.status === "open" && balance > 0 ? (
-                    <Button variant="secondary" onClick={() => fillPaymentForm(inv.id)}>
-                      قبض
-                    </Button>
-                  ) : null}
-                </Td>
-              </tr>
-            ))}
+            {invoicePagination.rows.map(({ inv, student, course, klass, balance, paid }) => {
+              const invoicePayments = paymentsForInvoice(inv.id);
+              const latestPayment = invoicePayments.find((payment) => !payment.is_void) ?? invoicePayments[0];
+              return (
+                <tr key={inv.id}>
+                  <Td className="font-semibold">{inv.number}</Td>
+                  <Td>
+                    <Link to="/students/$id" params={{ id: inv.student_id }} className="font-semibold text-primary hover:underline">
+                      {student?.full_name || "—"}
+                    </Link>
+                  </Td>
+                  <Td>{course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : "—"}</Td>
+                  <Td className="tabular-nums">{money(inv.total, cur)}</Td>
+                  <Td className="tabular-nums text-emerald-700">{money(paid, cur)}</Td>
+                  <Td className={balance > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(balance, cur)}</Td>
+                  <Td>
+                    {inv.status === "paid" ? (
+                      <Badge tone="success">مسددة</Badge>
+                    ) : inv.status === "cancelled" ? (
+                      <Badge tone="danger">ملغاة</Badge>
+                    ) : (
+                      <Badge tone="primary">عليها رصيد</Badge>
+                    )}
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {canPay && inv.status === "open" && balance > 0 ? (
+                        <Button variant="secondary" onClick={() => fillPaymentForm(inv.id)}>قبض</Button>
+                      ) : null}
+                      {latestPayment ? (
+                        <Button variant="secondary" onClick={() => printReceipt(currentDb, latestPayment)}>🖨️ آخر سند</Button>
+                      ) : null}
+                      {invoicePayments.length ? (
+                        <Button variant="ghost" onClick={() => setInvoiceReceiptsFor(inv.id)}>🧾 كل السندات</Button>
+                      ) : null}
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
           </Table>
           <PaginationControls
             page={invoicePagination.page}
@@ -288,18 +316,12 @@ function ReceiptsPage() {
                 <Td>{dateStr(p.paid_at)}</Td>
                 <Td>{p.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
                 <Td>
-                  <div className="flex gap-1">
-                    {!p.is_void && invoice?.status !== "cancelled" ? (
-                      <>
-                        <Button variant="ghost" onClick={() => printReceipt(currentDb, p)}>
-                          🖨️
-                        </Button>
-                        {canVoid ? (
-                          <Button variant="ghost" onClick={() => setVoidFor(p.id)}>
-                            إلغاء
-                          </Button>
-                        ) : null}
-                      </>
+                  <div className="flex flex-wrap gap-1">
+                    <Button variant="secondary" onClick={() => printReceipt(currentDb, p)}>
+                      {p.is_void || invoice?.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}
+                    </Button>
+                    {!p.is_void && invoice?.status !== "cancelled" && canVoid ? (
+                      <Button variant="ghost" onClick={() => setVoidFor(p.id)}>إلغاء</Button>
                     ) : null}
                   </div>
                 </Td>
@@ -320,6 +342,64 @@ function ReceiptsPage() {
         />
         </>
       )}
+
+      <Modal open={!!printAfterPaymentId} title="تم تسجيل سند القبض" onClose={() => setPrintAfterPaymentId(null)}>
+        {justCreatedPayment ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-success/5 p-4 text-sm">
+              <p className="font-bold text-success">تم حفظ سند القبض بنجاح.</p>
+              <p className="mt-2"><b>رقم السند:</b> {justCreatedPayment.receipt_no}</p>
+              <p><b>المبلغ:</b> {money(justCreatedPayment.amount, cur)}</p>
+              <p><b>التاريخ:</b> {dateStr(justCreatedPayment.paid_at)}</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button onClick={() => printReceipt(currentDb, justCreatedPayment)}>🖨️ طباعة السند الآن</Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSection("receipts");
+                  setPrintAfterPaymentId(null);
+                }}
+              >
+                🧾 فتح سجل السندات
+              </Button>
+            </div>
+          </div>
+        ) : <Empty text="تم تسجيل السند، ويمكن إعادة طباعته من سجل القبض." />}
+      </Modal>
+
+      <Modal open={!!invoiceReceiptsFor} title="كل سندات الفاتورة" onClose={() => setInvoiceReceiptsFor(null)} wide>
+        {receiptHistoryInvoice ? (
+          <div className="space-y-3">
+            <div className="rounded-xl bg-muted/40 p-3 text-sm"><b>الفاتورة:</b> {receiptHistoryInvoice.number}</div>
+            {receiptHistoryRows.length ? (
+              <div className="space-y-2">
+                {receiptHistoryRows.map((payment) => (
+                  <div key={payment.id} className={`rounded-xl border p-3 ${payment.is_void ? "bg-destructive/5" : "bg-card"}`}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1 text-sm">
+                        <p><b>رقم السند:</b> {payment.receipt_no}</p>
+                        <p><b>المبلغ:</b> {money(payment.amount, cur)}</p>
+                        <p><b>التاريخ:</b> {dateStr(payment.paid_at)}</p>
+                        <p>{payment.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</p>
+                        {payment.is_void && payment.void_reason ? <p className="text-xs text-destructive">سبب الإلغاء: {payment.void_reason}</p> : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => printReceipt(currentDb, payment)}>
+                          {payment.is_void || receiptHistoryInvoice.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}
+                        </Button>
+                        {!payment.is_void && receiptHistoryInvoice.status !== "cancelled" && canVoid ? (
+                          <Button variant="ghost" onClick={() => { setVoidFor(payment.id); setInvoiceReceiptsFor(null); }}>إلغاء</Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : <Empty text="لا توجد سندات لهذه الفاتورة." />}
+          </div>
+        ) : null}
+      </Modal>
 
       <Modal open={!!payFor} title="قبض على الفاتورة" onClose={() => setPayFor(null)}>
         <div className="space-y-3">
@@ -369,7 +449,7 @@ function ReceiptsPage() {
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setPayFor(null)}>إلغاء</Button>
-            <Button onClick={submitPayment}>تسجيل القبض وطباعة السند</Button>
+            <Button onClick={submitPayment}>تسجيل القبض</Button>
           </div>
         </div>
       </Modal>

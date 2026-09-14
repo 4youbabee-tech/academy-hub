@@ -225,8 +225,12 @@ function StudentsPage() {
                     <Link to="/students/$id" params={{ id: s.id }} className="font-semibold text-primary hover:underline">
                       {s.full_name}
                     </Link>
-                    <Link to="/students/$id" params={{ id: s.id }}>
-                      <Button variant="secondary" className="h-8 px-3 text-xs">📋 بطاقة الطالب</Button>
+                    <Link
+                      to="/students/$id"
+                      params={{ id: s.id }}
+                      className="inline-flex h-8 items-center justify-center rounded-lg bg-secondary px-3 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/70"
+                    >
+                      📋 فتح بطاقة الطالب
                     </Link>
                   </div>
                 </Td>
