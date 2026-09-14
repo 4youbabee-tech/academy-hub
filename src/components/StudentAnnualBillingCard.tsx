@@ -54,6 +54,7 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
   if (!db || !allowed("finance.view")) return null;
   const cur = db.settings.currency;
   const currentPeriod = localMonthKey();
+  const student = db.students.find((item) => item.id === studentId);
   const monthlyEnrollments = db.enrollments
     .filter((enrollment) => enrollment.student_id === studentId && enrollment.billing_mode === "monthly" && enrollment.status !== "cancelled")
     .sort((a, b) => b.enrolled_at.localeCompare(a.enrolled_at));
@@ -109,21 +110,30 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
 
   return (
     <>
-      <h2 className="mb-2 mt-6 text-sm font-bold">بطاقة الطالب الشهرية — الفعلي والمتوقع</h2>
+      <div className="mb-3 mt-6 rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">بطاقة الطالب المالية</p>
+            <h2 className="text-lg font-extrabold">{student?.full_name ?? "الطالب"}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">12 شهر — المستحق والمدفوع والمتبقي والمتوقع</p>
+          </div>
+          <Badge tone="primary">الأشهر 1 → 12</Badge>
+        </div>
+      </div>
       <div className="space-y-4">
         {monthlyEnrollments.map((enrollment) => {
           const names = courseAndClass(enrollment);
           const start = enrollment.billing_start_period ?? currentPeriod;
           const periods = twelvePeriods(start);
           const skipped = new Set(enrollment.skipped_periods ?? []);
-          const rows = periods.map((period) => {
+          const rows = periods.map((period, index) => {
             const actual = ledgerByEnrollmentPeriod.get(`${enrollment.id}|${period}`);
             const isSkipped = skipped.has(period);
             const isStopped = Boolean(enrollment.billing_end_period && period > enrollment.billing_end_period);
             const monthly = enrollment.monthly_price_snapshot ?? Math.max(0, enrollment.price_snapshot - enrollment.discount_snapshot);
             const expectedAmount = isSkipped || isStopped ? 0 : monthly;
             const future = period > currentPeriod;
-            return { period, actual, isSkipped, isStopped, expectedAmount, future };
+            return { monthNo: index + 1, period, actual, isSkipped, isStopped, expectedAmount, future };
           });
           const projectedTotal = rows.reduce((sum, row) => sum + (row.actual?.amount ?? row.expectedAmount), 0);
           const actualDue = rows.reduce((sum, row) => sum + (row.actual?.due ?? 0), 0);
@@ -161,7 +171,26 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
                 </div>
               </div>
 
-              <Table head={["الشهر", "المستحق", "المدفوع", "المتبقي", "الحالة", ""]}>
+              <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="rounded-xl bg-muted/50 p-3 text-center">
+                  <div className="text-xs text-muted-foreground">القسط الشهري</div>
+                  <div className="mt-1 font-bold tabular-nums">{money(enrollment.monthly_price_snapshot ?? 0, cur)}</div>
+                </div>
+                <div className="rounded-xl bg-muted/50 p-3 text-center">
+                  <div className="text-xs text-muted-foreground">المتبقي الفعلي</div>
+                  <div className={actualDue > 0 ? "mt-1 font-bold tabular-nums text-destructive" : "mt-1 font-bold tabular-nums text-emerald-700"}>{money(actualDue, cur)}</div>
+                </div>
+                <div className="rounded-xl bg-muted/50 p-3 text-center">
+                  <div className="text-xs text-muted-foreground">المتوقع 12 شهر</div>
+                  <div className="mt-1 font-bold tabular-nums">{money(projectedTotal, cur)}</div>
+                </div>
+                <div className="rounded-xl bg-muted/50 p-3 text-center">
+                  <div className="text-xs text-muted-foreground">حالة التسجيل</div>
+                  <div className="mt-1 font-bold">{enrollment.status === "active" ? "جارٍ" : "متوقف"}</div>
+                </div>
+              </div>
+
+              <Table head={["الشهر", "الفترة", "المستحق", "المدفوع", "المتبقي", "الحالة", ""]}>
                 {rows.map((row) => {
                   let statusNode;
                   if (row.isSkipped) statusNode = <Badge tone="muted">✕ متخطّى</Badge>;
@@ -180,7 +209,8 @@ export function StudentAnnualBillingCard({ studentId }: { studentId: string }) {
 
                   return (
                     <tr key={`${enrollment.id}-${row.period}`}>
-                      <Td className="font-semibold">{numericPeriod(row.period)}</Td>
+                      <Td className="font-extrabold text-primary">{row.monthNo}</Td>
+                      <Td className="text-xs text-muted-foreground">{numericPeriod(row.period)}</Td>
                       <Td className="tabular-nums">{money(amount, cur)}</Td>
                       <Td className="tabular-nums text-emerald-700">{money(paid, cur)}</Td>
                       <Td className={due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>

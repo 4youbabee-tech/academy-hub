@@ -221,9 +221,14 @@ function StudentsPage() {
               <tr key={s.id} className={s.status === "archived" ? "opacity-70" : ""}>
                 <Td className="tabular-nums">{s.code}</Td>
                 <Td>
-                  <Link to="/students/$id" params={{ id: s.id }} className="font-semibold text-primary hover:underline">
-                    {s.full_name}
-                  </Link>
+                  <div className="flex min-w-[150px] flex-col items-start gap-2">
+                    <Link to="/students/$id" params={{ id: s.id }} className="font-semibold text-primary hover:underline">
+                      {s.full_name}
+                    </Link>
+                    <Link to="/students/$id" params={{ id: s.id }}>
+                      <Button variant="secondary" className="h-8 px-3 text-xs">📋 بطاقة الطالب</Button>
+                    </Link>
+                  </div>
                 </Td>
                 <Td>{s.education_level || "—"}</Td>
                 <Td className="text-xs">{enrollmentLabels.length ? enrollmentLabels.join("، ") : "—"}</Td>
@@ -255,9 +260,6 @@ function StudentsPage() {
                 </Td>
                 <Td>
                   <div className="flex flex-wrap gap-1">
-                    <Link to="/students/$id" params={{ id: s.id }}>
-                      <Button variant="secondary">بطاقة الطالب</Button>
-                    </Link>
                     {canEnroll && s.status === "active" ? (
                       <Button variant="ghost" onClick={() => setEnrollStudentId(s.id)}>تسجيل</Button>
                     ) : null}
