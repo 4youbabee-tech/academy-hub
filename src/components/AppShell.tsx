@@ -112,11 +112,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       if (url.origin !== window.location.origin) return;
       const match = url.pathname.match(/^\/students\/([^/]+)\/?$/);
-      if (!match) return;
+      const rawStudentId = match?.[1];
+      if (!rawStudentId) return;
       event.preventDefault();
       event.stopPropagation();
       setNotificationsOpen(false);
-      setStudentCardId(decodeURIComponent(match[1]));
+      setStudentCardId(decodeURIComponent(rawStudentId));
     };
     document.addEventListener("click", openStudentCard, true);
     return () => document.removeEventListener("click", openStudentCard, true);
