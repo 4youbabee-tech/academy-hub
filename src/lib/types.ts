@@ -29,6 +29,8 @@ export interface Settings {
   academic_year: string;
   receipt_prefix: string;
   receipt_next: number;
+  payroll_receipt_prefix?: string;
+  payroll_receipt_next?: number;
   student_code_prefix: string;
   student_code_next: number;
   receipt_show_logo: boolean;
@@ -98,16 +100,12 @@ export interface Enrollment extends Base {
   price_snapshot: number;
   discount_snapshot: number;
   discount_reason: string;
-  /** Legacy registrations keep their historical one-time invoice unchanged. */
   billing_mode?: "legacy" | "monthly";
-  /** First and optional final billed period in YYYY-MM format. */
   billing_start_period?: string | null;
   billing_end_period?: string | null;
-  /** Net recurring monthly charge after the snapshotted discount. */
   monthly_price_snapshot?: number;
   discount_preset_id?: ID | null;
   discount_title_snapshot?: string;
-  /** Specific YYYY-MM periods intentionally excluded from billing (student did not attend). */
   skipped_periods?: string[];
   status: "active" | "completed" | "withdrawn" | "cancelled";
 }
@@ -126,20 +124,25 @@ export interface Installment extends Base {
   due_date: string;
   amount: number;
   status: "due" | "paid" | "partial";
-  /** registration = رسوم التسجيل، installment = قسط قديم، monthly = استحقاق شهري. */
   kind?: "registration" | "installment" | "monthly";
-  /** 0 لرسوم التسجيل، 1..n لأرقام الأقساط */
   seq?: number;
-  /** Billing period for monthly charges (YYYY-MM). */
   period?: string | null;
   is_void?: boolean;
   void_reason?: string;
   voided_at?: string | null;
 }
 
+export interface PaymentAllocation {
+  installment_id: ID;
+  amount: number;
+}
+
 export interface Payment extends Base {
   invoice_id: ID;
   installment_id: ID | null;
+  allocations?: PaymentAllocation[];
+  /** Rows that belong to one user-visible receipt share this identifier and receipt number. */
+  receipt_group_id?: ID | null;
   student_id: ID;
   receipt_no: string;
   amount: number;
@@ -150,7 +153,6 @@ export interface Payment extends Base {
   voided_at?: string | null;
   user_id: ID | null;
   note?: string;
-  /** Immutable financial state immediately after issuing this receipt. */
   invoice_total_snapshot?: number;
   paid_after_snapshot?: number;
   due_after_snapshot?: number;
@@ -169,12 +171,11 @@ export interface Employee extends Base {
 
 export interface PayrollItem extends Base {
   employee_id: ID;
-  period: string; // YYYY-MM
+  period: string;
   base_snapshot: number;
   bonus: number;
   deduction: number;
   advance_deducted: number;
-  /** Exact advances settled by this payroll item. */
   advance_ids?: ID[];
   net: number;
   paid_at: string | null;
@@ -187,7 +188,6 @@ export interface Advance extends Base {
   date: string;
   reason: string;
   settled: boolean;
-  /** Reserved for exactly one payroll item as soon as it is allocated. */
   allocated_payroll_id?: ID | null;
   settled_at?: string | null;
 }
@@ -202,7 +202,8 @@ export interface PayrollPayment extends Base {
   voided_at?: string | null;
   user_id: ID | null;
   note?: string;
-  /** Immutable payroll state immediately after issuing this payment receipt. */
+  settlement_id?: ID | null;
+  settlement_no?: string;
   payroll_net_snapshot?: number;
   paid_before_snapshot?: number;
   paid_after_snapshot?: number;

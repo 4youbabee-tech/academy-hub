@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Stat, Table, Td } from "@/components/ui-kit";
-import { invoiceBalance, invoiceFinancials, recordPayment, voidPayment } from "@/lib/finance";
-import { dateStr, money, toMinor } from "@/lib/format";
+import { installmentPaid, invoiceBalance, invoiceFinancials, invoiceInstallments } from "@/lib/finance";
+import { dateStr, money, numericMonthPeriodLabel, toMinor } from "@/lib/format";
+import { printInvoice } from "@/lib/invoice-print";
 import { printReceipt } from "@/lib/receipt-print";
-import type { Payment } from "@/lib/types";
+import { recordStudentAllocatedReceipt, voidStudentReceiptGroup } from "@/lib/student-settlement";
+import type { Installment, Payment } from "@/lib/types";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePagination } from "@/hooks/use-pagination";
 
@@ -20,31 +22,24 @@ export const Route = createFileRoute("/receipts")({
   component: ReceiptsPage,
 });
 
-type Section = "invoices" | "receipts";
-type ReceiptFilter = "all" | "paid" | "void";
 type InvoiceFilter = "all" | "open" | "paid" | "cancelled";
 
 function ReceiptsPage() {
   const { db, actor, allowed } = useApp();
-  const [section, setSection] = useState<Section>("invoices");
   const [q, setQ] = useState("");
-  const [receiptFilter, setReceiptFilter] = useState<ReceiptFilter>("all");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("all");
   const [payFor, setPayFor] = useState<string | null>(null);
-  const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<Payment["method"]>("cash");
   const [note, setNote] = useState("");
+  const [quickAmount, setQuickAmount] = useState("");
+  const [selectedInstallments, setSelectedInstallments] = useState<Record<string, boolean>>({});
+  const [allocationAmounts, setAllocationAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [voidFor, setVoidFor] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [printAfterPaymentId, setPrintAfterPaymentId] = useState<string | null>(null);
   const [invoiceReceiptsFor, setInvoiceReceiptsFor] = useState<string | null>(null);
   const debouncedQ = useDebouncedValue(q);
-
-  const openInvoices = useMemo(
-    () => (db ? db.invoices.filter((invoice) => invoice.status === "open" && invoiceBalance(db, invoice.id) > 0) : []),
-    [db],
-  );
 
   const invoiceRows = useMemo(() => {
     if (!db) return [];
@@ -60,7 +55,7 @@ function ReceiptsPage() {
         const klass = enrollment ? classes.get(enrollment.class_id) : undefined;
         const course = klass ? courses.get(klass.course_id) : undefined;
         const financials = invoiceFinancials(db, inv);
-        return { inv, student, enrollment, klass, course, balance: financials.due, paid: financials.paid };
+        return { inv, student, klass, course, balance: financials.due, paid: financials.paid };
       })
       .filter((row) => (invoiceFilter === "all" ? true : row.inv.status === invoiceFilter))
       .filter((row) => {
@@ -76,32 +71,7 @@ function ReceiptsPage() {
       .sort((a, b) => b.inv.issued_at.localeCompare(a.inv.issued_at));
   }, [db, debouncedQ, invoiceFilter]);
 
-  const receipts = useMemo(() => {
-    if (!db) return [];
-    const term = debouncedQ.trim().toLowerCase();
-    let list = db.payments.slice();
-
-    if (receiptFilter === "paid") list = list.filter((p) => !p.is_void);
-    else if (receiptFilter === "void") list = list.filter((p) => p.is_void);
-
-    if (term) {
-      list = list.filter((p) => {
-        const student = db.students.find((s) => s.id === p.student_id);
-        const invoice = db.invoices.find((i) => i.id === p.invoice_id);
-        return (
-          p.receipt_no.toLowerCase().includes(term) ||
-          (student?.full_name ?? "").toLowerCase().includes(term) ||
-          (student?.code ?? "").toLowerCase().includes(term) ||
-          (invoice?.number ?? "").toLowerCase().includes(term)
-        );
-      });
-    }
-
-    return list.sort((a, b) => b.paid_at.localeCompare(a.paid_at));
-  }, [db, debouncedQ, receiptFilter]);
-
   const invoicePagination = usePagination(invoiceRows, `${debouncedQ}|${invoiceFilter}`);
-  const receiptPagination = usePagination(receipts, `${debouncedQ}|${receiptFilter}`);
 
   if (!db) return null;
   if (!allowed("finance.view")) return <Denied />;
@@ -110,80 +80,163 @@ function ReceiptsPage() {
   const canVoid = allowed("finance.void");
   const cur = currentDb.settings.currency;
 
+  function receiptKey(payment: Payment): string {
+    return payment.receipt_group_id || payment.id;
+  }
+
+  function visibleReceiptsForInvoice(invoiceId: string): Payment[] {
+    const seen = new Set<string>();
+    return currentDb.payments
+      .filter((payment) => payment.invoice_id === invoiceId)
+      .slice()
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))
+      .filter((payment) => {
+        const key = receiptKey(payment);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function receiptGroupAmount(payment: Payment): number {
+    if (!payment.receipt_group_id) return payment.amount;
+    return currentDb.payments
+      .filter((row) => row.receipt_group_id === payment.receipt_group_id)
+      .reduce((sum, row) => sum + row.amount, 0);
+  }
+
+  function receiptGroupVoid(payment: Payment): boolean {
+    if (!payment.receipt_group_id) return payment.is_void;
+    const rows = currentDb.payments.filter((row) => row.receipt_group_id === payment.receipt_group_id);
+    return rows.length > 0 && rows.every((row) => row.is_void);
+  }
+
   const activeInvoiceIds = new Set(currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").map((invoice) => invoice.id));
   const validPayments = currentDb.payments.filter((payment) => !payment.is_void && activeInvoiceIds.has(payment.invoice_id));
-  const totalReceipts = validPayments.length;
+  const uniqueReceiptKeys = new Set(validPayments.map((payment) => receiptKey(payment)));
+  const totalReceipts = uniqueReceiptKeys.size;
   const totalAmount = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const totalBilled = currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoice.total, 0);
   const totalDue = currentDb.invoices.filter((invoice) => invoice.status !== "cancelled").reduce((sum, invoice) => sum + invoiceBalance(currentDb, invoice.id), 0);
 
-  const currentInvoice = payFor ? currentDb.invoices.find((i) => i.id === payFor) ?? null : null;
-  const currentStudent = currentInvoice ? currentDb.students.find((s) => s.id === currentInvoice.student_id) ?? null : null;
-  const currentEnrollment = currentInvoice ? currentDb.enrollments.find((e) => e.id === currentInvoice.enrollment_id) ?? null : null;
-  const currentClass = currentEnrollment ? currentDb.classes.find((k) => k.id === currentEnrollment.class_id) ?? null : null;
-  const currentCourse = currentClass ? currentDb.courses.find((c) => c.id === currentClass.course_id) ?? null : null;
+  const currentInvoice = payFor ? currentDb.invoices.find((invoice) => invoice.id === payFor) ?? null : null;
+  const currentStudent = currentInvoice ? currentDb.students.find((student) => student.id === currentInvoice.student_id) ?? null : null;
+  const currentEnrollment = currentInvoice ? currentDb.enrollments.find((enrollment) => enrollment.id === currentInvoice.enrollment_id) ?? null : null;
+  const currentClass = currentEnrollment ? currentDb.classes.find((klass) => klass.id === currentEnrollment.class_id) ?? null : null;
+  const currentCourse = currentClass ? currentDb.courses.find((course) => course.id === currentClass.course_id) ?? null : null;
   const invoiceRemaining = currentInvoice ? invoiceBalance(currentDb, currentInvoice.id) : 0;
+  const payableInstallments = currentInvoice
+    ? invoiceInstallments(currentDb, currentInvoice.id)
+        .map((installment) => ({
+          installment,
+          paid: installmentPaid(currentDb, installment.id),
+          remaining: Math.max(0, installment.amount - installmentPaid(currentDb, installment.id)),
+        }))
+        .filter((row) => row.remaining > 0)
+    : [];
+  const selectedTotal = payableInstallments.reduce((sum, row) => {
+    if (!selectedInstallments[row.installment.id]) return sum;
+    try {
+      return sum + toMinor(allocationAmounts[row.installment.id] || "0");
+    } catch {
+      return sum;
+    }
+  }, 0);
+
   const justCreatedPayment = printAfterPaymentId
     ? currentDb.payments.find((payment) => payment.id === printAfterPaymentId)
     : undefined;
   const receiptHistoryInvoice = invoiceReceiptsFor
     ? currentDb.invoices.find((invoice) => invoice.id === invoiceReceiptsFor)
     : undefined;
-  const receiptHistoryRows = invoiceReceiptsFor
-    ? currentDb.payments
-        .filter((payment) => payment.invoice_id === invoiceReceiptsFor)
-        .slice()
-        .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at))
-    : [];
+  const receiptHistoryRows = invoiceReceiptsFor ? visibleReceiptsForInvoice(invoiceReceiptsFor) : [];
 
-  function paymentsForInvoice(invoiceId: string) {
-    return currentDb.payments
-      .filter((payment) => payment.invoice_id === invoiceId)
-      .slice()
-      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.created_at.localeCompare(a.created_at));
+  function installmentLabel(installment: Installment): string {
+    if (installment.kind === "registration") return "رسوم التسجيل";
+    if (installment.kind === "monthly" && installment.period) return `شهر ${numericMonthPeriodLabel(installment.period)}`;
+    return `قسط ${installment.seq ?? 1}`;
   }
 
   function fillPaymentForm(invoiceId: string | null) {
     setPayFor(invoiceId);
     setMethod("cash");
     setNote("");
-    setAmount("");
+    setQuickAmount("");
+    setSelectedInstallments({});
+    setAllocationAmounts({});
+    setError(null);
+  }
+
+  function setAllocation(installmentId: string, selected: boolean, defaultAmount = "") {
+    setSelectedInstallments((current) => ({ ...current, [installmentId]: selected }));
+    setAllocationAmounts((current) => ({ ...current, [installmentId]: selected ? (current[installmentId] || defaultAmount) : "" }));
+  }
+
+  function distributeOldestFirst() {
+    if (!currentInvoice) return;
+    let amount: number;
+    try {
+      amount = toMinor(quickAmount);
+    } catch {
+      setError("أدخل مبلغًا صحيحًا للتوزيع التلقائي");
+      return;
+    }
+    if (amount <= 0) return setError("أدخل مبلغًا أكبر من صفر");
+    if (amount > invoiceRemaining) return setError("المبلغ يتجاوز الرصيد المتبقي على الفاتورة");
+
+    const selected: Record<string, boolean> = {};
+    const allocations: Record<string, string> = {};
+    let remainingPool = amount;
+    for (const row of payableInstallments) {
+      if (remainingPool <= 0) break;
+      const take = Math.min(remainingPool, row.remaining);
+      if (take > 0) {
+        selected[row.installment.id] = true;
+        allocations[row.installment.id] = (take / 100).toFixed(2);
+        remainingPool -= take;
+      }
+    }
+    setSelectedInstallments(selected);
+    setAllocationAmounts(allocations);
     setError(null);
   }
 
   function submitPayment() {
     if (!payFor) return;
     try {
-      const paymentId = recordPayment(
-        {
-          invoice_id: payFor,
-          amount: toMinor(amount),
-          method,
-          note: note.trim(),
-        },
+      const allocations = payableInstallments
+        .filter((row) => selectedInstallments[row.installment.id])
+        .map((row) => ({
+          installment_id: row.installment.id,
+          amount: toMinor(allocationAmounts[row.installment.id] || "0"),
+        }))
+        .filter((row) => row.amount > 0);
+      const result = recordStudentAllocatedReceipt(
+        { invoice_id: payFor, allocations, method, note: note.trim() },
         actor,
       );
-      setPrintAfterPaymentId(paymentId);
+      setPrintAfterPaymentId(result.payment_ids[0] ?? null);
       setPayFor(null);
-      setSection("invoices");
-      setAmount("");
+      setQuickAmount("");
+      setSelectedInstallments({});
+      setAllocationAmounts({});
       setMethod("cash");
       setNote("");
       setError(null);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (caught) {
+      setError((caught as Error).message);
     }
   }
 
   function submitVoid() {
     if (!voidFor) return;
     try {
-      voidPayment(voidFor, reason, actor);
+      voidStudentReceiptGroup(voidFor, reason, actor);
       setVoidFor(null);
       setReason("");
       setError(null);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (caught) {
+      setError((caught as Error).message);
     }
   }
 
@@ -191,12 +244,7 @@ function ReceiptsPage() {
     <div>
       <PageHeader
         title="الفواتير والتحصيل"
-        subtitle="المستحق والقبض والطباعة من نفس شاشة الفاتورة"
-        actions={
-          <Button variant="secondary" onClick={() => setSection((current) => current === "receipts" ? "invoices" : "receipts")}>
-            {section === "receipts" ? "العودة للفواتير" : "سجل القبض"}
-          </Button>
-        }
+        subtitle="الفاتورة والقبض والطباعة وسجل السندات في صف واحد بدون التنقل بين شاشتين"
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -209,35 +257,26 @@ function ReceiptsPage() {
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           className="min-w-[220px] flex-1"
-          placeholder={section === "invoices" ? "بحث بالطالب أو رقم الفاتورة أو العام الدراسي..." : "بحث برقم السند أو اسم الطالب..."}
+          placeholder="بحث بالطالب أو رقم الفاتورة أو العام الدراسي..."
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(event) => setQ(event.target.value)}
         />
-        {section === "invoices" ? (
-          <Select className="w-44" value={invoiceFilter} onChange={(e) => setInvoiceFilter(e.target.value as InvoiceFilter)}>
-            <option value="all">كل الفواتير</option>
-            <option value="open">عليها رصيد</option>
-            <option value="paid">مسددة</option>
-            <option value="cancelled">ملغاة</option>
-          </Select>
-        ) : (
-          <Select className="w-44" value={receiptFilter} onChange={(e) => setReceiptFilter(e.target.value as ReceiptFilter)}>
-            <option value="all">كل السندات</option>
-            <option value="paid">سارية</option>
-            <option value="void">ملغاة</option>
-          </Select>
-        )}
+        <Select className="w-44" value={invoiceFilter} onChange={(event) => setInvoiceFilter(event.target.value as InvoiceFilter)}>
+          <option value="all">كل الفواتير</option>
+          <option value="open">عليها رصيد</option>
+          <option value="paid">مسددة</option>
+          <option value="cancelled">ملغاة</option>
+        </Select>
       </div>
 
-      {section === "invoices" ? (
-        invoiceRows.length === 0 ? (
-          <Empty text="لا توجد فواتير مطابقة." />
-        ) : (
-          <>
-          <Table head={["الفاتورة", "الطالب", "العام الدراسي / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", ""]}>
+      {invoiceRows.length === 0 ? (
+        <Empty text="لا توجد فواتير مطابقة." />
+      ) : (
+        <>
+          <Table head={["الفاتورة", "الطالب", "العام الدراسي / الصف", "المستحق", "المقبوض", "المتبقي", "الحالة", "الإجراءات"]}>
             {invoicePagination.rows.map(({ inv, student, course, klass, balance, paid }) => {
-              const invoicePayments = paymentsForInvoice(inv.id);
-              const latestPayment = invoicePayments.find((payment) => !payment.is_void) ?? invoicePayments[0];
+              const invoiceReceipts = visibleReceiptsForInvoice(inv.id);
+              const latestPayment = invoiceReceipts.find((payment) => !receiptGroupVoid(payment)) ?? invoiceReceipts[0];
               return (
                 <tr key={inv.id}>
                   <Td className="font-semibold">{inv.number}</Td>
@@ -251,23 +290,21 @@ function ReceiptsPage() {
                   <Td className="tabular-nums text-emerald-700">{money(paid, cur)}</Td>
                   <Td className={balance > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(balance, cur)}</Td>
                   <Td>
-                    {inv.status === "paid" ? (
-                      <Badge tone="success">مسددة</Badge>
-                    ) : inv.status === "cancelled" ? (
-                      <Badge tone="danger">ملغاة</Badge>
-                    ) : (
-                      <Badge tone="primary">عليها رصيد</Badge>
-                    )}
+                    {inv.status === "paid" ? <Badge tone="success">مسددة</Badge>
+                      : inv.status === "cancelled" ? <Badge tone="danger">ملغاة</Badge>
+                        : paid > 0 ? <Badge tone="primary">مدفوعة جزئيًا</Badge>
+                          : <Badge tone="primary">عليها رصيد</Badge>}
                   </Td>
                   <Td>
                     <div className="flex flex-wrap gap-1">
                       {canPay && inv.status === "open" && balance > 0 ? (
                         <Button variant="secondary" onClick={() => fillPaymentForm(inv.id)}>قبض</Button>
                       ) : null}
+                      <Button variant="secondary" onClick={() => printInvoice(currentDb, inv)}>🖨️ طباعة الفاتورة</Button>
                       {latestPayment ? (
                         <Button variant="secondary" onClick={() => printReceipt(currentDb, latestPayment)}>🖨️ آخر سند</Button>
                       ) : null}
-                      {invoicePayments.length ? (
+                      {invoiceReceipts.length ? (
                         <Button variant="ghost" onClick={() => setInvoiceReceiptsFor(inv.id)}>🧾 كل السندات</Button>
                       ) : null}
                     </div>
@@ -287,59 +324,6 @@ function ReceiptsPage() {
             onNext={invoicePagination.next}
             onPageSizeChange={invoicePagination.setPageSize}
           />
-          </>
-        )
-      ) : receipts.length === 0 ? (
-        <Empty text="لا توجد سندات قبض مطابقة." />
-      ) : (
-        <>
-        <Table head={["رقم السند", "الطالب", "البيان / الملاحظة", "العام الدراسي / الصف", "المبلغ", "الطريقة", "التاريخ", "الحالة", ""]}>
-          {receiptPagination.rows.map((p) => {
-            const student = currentDb.students.find((s) => s.id === p.student_id);
-            const invoice = currentDb.invoices.find((i) => i.id === p.invoice_id);
-            const enrollment = currentDb.enrollments.find((e) => e.id === invoice?.enrollment_id);
-            const klass = currentDb.classes.find((k) => k.id === enrollment?.class_id);
-            const course = currentDb.courses.find((c) => c.id === klass?.course_id);
-
-            return (
-              <tr key={p.id} className={p.is_void ? "opacity-60" : ""}>
-                <Td className="font-semibold">{p.receipt_no}</Td>
-                <Td>
-                  <Link to="/students/$id" params={{ id: p.student_id }} className="text-primary hover:underline">
-                    {student?.full_name || "—"}
-                  </Link>
-                </Td>
-                <Td>{p.note?.trim() || "دفعة"}</Td>
-                <Td>{course?.name ? `${course.name}${klass ? ` — ${klass.name}` : ""}` : "—"}</Td>
-                <Td className="tabular-nums">{money(p.amount, cur)}</Td>
-                <Td>{p.method === "cash" ? "نقدًا" : p.method === "bank" ? "بنك" : "أخرى"}</Td>
-                <Td>{dateStr(p.paid_at)}</Td>
-                <Td>{p.is_void ? <Badge tone="danger">ملغاة</Badge> : <Badge tone="success">سارية</Badge>}</Td>
-                <Td>
-                  <div className="flex flex-wrap gap-1">
-                    <Button variant="secondary" onClick={() => printReceipt(currentDb, p)}>
-                      {p.is_void || invoice?.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}
-                    </Button>
-                    {!p.is_void && invoice?.status !== "cancelled" && canVoid ? (
-                      <Button variant="ghost" onClick={() => setVoidFor(p.id)}>إلغاء</Button>
-                    ) : null}
-                  </div>
-                </Td>
-              </tr>
-            );
-          })}
-        </Table>
-        <PaginationControls
-          page={receiptPagination.page}
-          pageCount={receiptPagination.pageCount}
-          pageSize={receiptPagination.pageSize}
-          total={receiptPagination.total}
-          from={receiptPagination.from}
-          to={receiptPagination.to}
-          onPrevious={receiptPagination.previous}
-          onNext={receiptPagination.next}
-          onPageSizeChange={receiptPagination.setPageSize}
-        />
         </>
       )}
 
@@ -347,25 +331,14 @@ function ReceiptsPage() {
         {justCreatedPayment ? (
           <div className="space-y-4">
             <div className="rounded-xl border bg-success/5 p-4 text-sm">
-              <p className="font-bold text-success">تم حفظ سند القبض بنجاح.</p>
+              <p className="font-bold text-success">تم حفظ سند القبض وتوزيعه على الاستحقاقات المحددة.</p>
               <p className="mt-2"><b>رقم السند:</b> {justCreatedPayment.receipt_no}</p>
-              <p><b>المبلغ:</b> {money(justCreatedPayment.amount, cur)}</p>
+              <p><b>إجمالي السند:</b> {money(receiptGroupAmount(justCreatedPayment), cur)}</p>
               <p><b>التاريخ:</b> {dateStr(justCreatedPayment.paid_at)}</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button onClick={() => printReceipt(currentDb, justCreatedPayment)}>🖨️ طباعة السند الآن</Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setSection("receipts");
-                  setPrintAfterPaymentId(null);
-                }}
-              >
-                🧾 فتح سجل السندات
-              </Button>
-            </div>
+            <Button className="w-full" onClick={() => printReceipt(currentDb, justCreatedPayment)}>🖨️ طباعة السند الآن</Button>
           </div>
-        ) : <Empty text="تم تسجيل السند، ويمكن إعادة طباعته من سجل القبض." />}
+        ) : <Empty text="تم تسجيل السند." />}
       </Modal>
 
       <Modal open={!!invoiceReceiptsFor} title="كل سندات الفاتورة" onClose={() => setInvoiceReceiptsFor(null)} wide>
@@ -374,82 +347,106 @@ function ReceiptsPage() {
             <div className="rounded-xl bg-muted/40 p-3 text-sm"><b>الفاتورة:</b> {receiptHistoryInvoice.number}</div>
             {receiptHistoryRows.length ? (
               <div className="space-y-2">
-                {receiptHistoryRows.map((payment) => (
-                  <div key={payment.id} className={`rounded-xl border p-3 ${payment.is_void ? "bg-destructive/5" : "bg-card"}`}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1 text-sm">
-                        <p><b>رقم السند:</b> {payment.receipt_no}</p>
-                        <p><b>المبلغ:</b> {money(payment.amount, cur)}</p>
-                        <p><b>التاريخ:</b> {dateStr(payment.paid_at)}</p>
-                        <p>{payment.is_void ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</p>
-                        {payment.is_void && payment.void_reason ? <p className="text-xs text-destructive">سبب الإلغاء: {payment.void_reason}</p> : null}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" onClick={() => printReceipt(currentDb, payment)}>
-                          {payment.is_void || receiptHistoryInvoice.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}
-                        </Button>
-                        {!payment.is_void && receiptHistoryInvoice.status !== "cancelled" && canVoid ? (
-                          <Button variant="ghost" onClick={() => { setVoidFor(payment.id); setInvoiceReceiptsFor(null); }}>إلغاء</Button>
-                        ) : null}
+                {receiptHistoryRows.map((payment) => {
+                  const isVoid = receiptGroupVoid(payment);
+                  return (
+                    <div key={receiptKey(payment)} className={`rounded-xl border p-3 ${isVoid ? "bg-destructive/5" : "bg-card"}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1 text-sm">
+                          <p><b>رقم السند:</b> {payment.receipt_no}</p>
+                          <p><b>المبلغ:</b> {money(receiptGroupAmount(payment), cur)}</p>
+                          <p><b>التاريخ:</b> {dateStr(payment.paid_at)}</p>
+                          <p>{isVoid ? <Badge tone="danger">ملغى</Badge> : <Badge tone="success">ساري</Badge>}</p>
+                          {isVoid && payment.void_reason ? <p className="text-xs text-destructive">سبب الإلغاء: {payment.void_reason}</p> : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="secondary" onClick={() => printReceipt(currentDb, payment)}>
+                            {isVoid || receiptHistoryInvoice.status === "cancelled" ? "🖨️ طباعة نسخة تاريخية" : "🖨️ طباعة السند"}
+                          </Button>
+                          {!isVoid && receiptHistoryInvoice.status !== "cancelled" && canVoid ? (
+                            <Button variant="ghost" onClick={() => { setVoidFor(payment.id); setInvoiceReceiptsFor(null); }}>إلغاء</Button>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : <Empty text="لا توجد سندات لهذه الفاتورة." />}
           </div>
         ) : null}
       </Modal>
 
-      <Modal open={!!payFor} title="قبض على الفاتورة" onClose={() => setPayFor(null)}>
-        <div className="space-y-3">
-          <Field label="الفاتورة / الطالب">
-            <Select value={payFor || ""} onChange={(e) => fillPaymentForm(e.target.value || null)}>
-              <option value="">— اختر فاتورة —</option>
-              {openInvoices.map((inv) => {
-                const student = currentDb.students.find((s) => s.id === inv.student_id);
-                return (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.number} — {student?.full_name || "—"} (المتبقي: {money(invoiceBalance(currentDb, inv.id), cur)})
-                  </option>
-                );
-              })}
-            </Select>
-          </Field>
-
+      <Modal open={!!payFor} title="قبض وتوزيع الدفعة" onClose={() => setPayFor(null)} wide>
+        <div className="space-y-4">
           {currentInvoice ? (
             <div className="rounded-xl border bg-muted/20 p-3 text-sm">
+              <p><b>الفاتورة:</b> {currentInvoice.number}</p>
               <p><b>الطالب:</b> {currentStudent?.full_name || "—"}</p>
               <p><b>العام الدراسي / الصف:</b> {currentCourse?.name || "—"}{currentClass ? ` — ${currentClass.name}` : ""}</p>
               <p><b>إجمالي المستحق:</b> {money(currentInvoice.total, cur)}</p>
-              <p><b>المتبقي:</b> {money(invoiceRemaining, cur)}</p>
+              <p><b>المتبقي الكلي:</b> {money(invoiceRemaining, cur)}</p>
             </div>
           ) : null}
 
-          <Field label="المبلغ المقبوض">
-            <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="أدخل المبلغ..." />
-          </Field>
+          <div className="rounded-xl border p-3">
+            <div className="mb-3 flex flex-wrap items-end gap-2">
+              <Field label="مبلغ سريع للتوزيع بالأقدم أولًا" className="min-w-[220px] flex-1">
+                <Input type="number" step="0.01" value={quickAmount} onChange={(event) => setQuickAmount(event.target.value)} placeholder="مثال: 150" />
+              </Field>
+              <Button variant="secondary" onClick={distributeOldestFirst}>توزيع بالأقدم أولًا</Button>
+            </div>
+            <p className="mb-3 text-xs text-muted-foreground">يمكنك بعد التوزيع التلقائي تعديل أي شهر يدويًا أو إلغاء اختياره.</p>
+            <div className="space-y-2">
+              {payableInstallments.map(({ installment, paid, remaining }) => {
+                const selected = Boolean(selectedInstallments[installment.id]);
+                return (
+                  <div key={installment.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[auto_1fr_150px] sm:items-center">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={(event) => setAllocation(installment.id, event.target.checked, (remaining / 100).toFixed(2))}
+                      aria-label={`اختيار ${installmentLabel(installment)}`}
+                      className="h-4 w-4"
+                    />
+                    <div className="text-sm">
+                      <p className="font-semibold">{installmentLabel(installment)}</p>
+                      <p className="text-xs text-muted-foreground">المستحق {money(installment.amount, cur)} — المدفوع {money(paid, cur)} — المتبقي {money(remaining, cur)}</p>
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      disabled={!selected}
+                      value={allocationAmounts[installment.id] || ""}
+                      onChange={(event) => setAllocationAmounts((current) => ({ ...current, [installment.id]: event.target.value }))}
+                      placeholder="المبلغ"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-muted/30 p-3 text-sm">
+            <b>إجمالي الدفعة المحددة:</b> {money(selectedTotal, cur)}
+            <span className="mx-2">—</span>
+            <b>المتبقي المتوقع بعد الدفعة:</b> {money(Math.max(0, invoiceRemaining - selectedTotal), cur)}
+          </div>
 
           <Field label="طريقة الدفع">
-            <Select value={method} onChange={(e) => setMethod(e.target.value as Payment["method"])}>
+            <Select value={method} onChange={(event) => setMethod(event.target.value as Payment["method"])}>
               <option value="cash">نقدًا</option>
               <option value="bank">بنك</option>
               <option value="other">أخرى</option>
             </Select>
           </Field>
-
           <Field label="البيان / الملاحظة">
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="مثال: رسوم تسجيل، قسط أول، دفعة شهر آب..."
-            />
+            <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder="ملاحظة اختيارية تظهر على السند" />
           </Field>
-
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setPayFor(null)}>إلغاء</Button>
-            <Button onClick={submitPayment}>تسجيل القبض</Button>
+            <Button onClick={submitPayment} disabled={selectedTotal <= 0}>تسجيل القبض</Button>
           </div>
         </div>
       </Modal>
@@ -457,7 +454,7 @@ function ReceiptsPage() {
       <Modal open={!!voidFor} title="إلغاء سند قبض" onClose={() => setVoidFor(null)}>
         <div className="space-y-3">
           <Field label="سبب الإلغاء">
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="السبب إلزامي..." />
+            <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="السبب إلزامي..." />
           </Field>
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
