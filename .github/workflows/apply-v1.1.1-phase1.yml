@@ -51,6 +51,9 @@ jobs:
       - name: Apply student lifecycle and export safeguards phase
         run: node scripts/apply-v1.1.1-phase7.mjs
 
+      - name: Apply final typing and audit polish
+        run: node scripts/apply-v1.1.1-phase8.mjs
+
       - name: Verify source
         run: npm run ci:verify
 
