@@ -16,7 +16,7 @@ function paymentOrder(a: Payment, b: Payment): number {
   return a.receipt_no.localeCompare(b.receipt_no);
 }
 
-/** Prints an A5 (or A4) receipt for a payment — used from the receipts page and the student file. */
+/** Prints an A5 (or A4) receipt for a payment — used from the collection page and the student file. */
 export function printReceipt(db: DB, payment: Payment): void {
   const s = db.settings;
   const student = db.students.find((x) => x.id === payment.student_id);
@@ -62,7 +62,6 @@ export function printReceipt(db: DB, payment: Payment): void {
   .total { margin-top:12px; font-size:19px; font-weight:800; text-align:left; }
   .sign { display:flex; justify-content:space-between; margin-top:26px; font-size:12px; color:#444; }
   .footer { margin-top:14px; text-align:center; font-size:11px; color:#888; border-top:1px solid #eee; padding-top:8px; }
-  .void { color:#b00; font-weight:800; text-align:center; margin-top:6px; }
 </style></head><body><div class="receipt">
   <div class="header">
     ${s.receipt_show_logo !== false && s.logo_data_url ? `<img class="logo" src="${s.logo_data_url}" />` : ""}
@@ -75,7 +74,7 @@ export function printReceipt(db: DB, payment: Payment): void {
   ${row("التاريخ", new Date(payment.paid_at).toLocaleString("ar-EG"))}
   ${row("الطالب", `${student?.full_name ?? "—"} (${student?.code ?? "—"})`)}
   ${s.receipt_show_guardian !== false ? row("ولي الأمر", student?.guardian_name || "—") : ""}
-  ${row("الدورة / الصف", `${course?.name ?? "—"}${klass ? " — " + klass.name : ""}`)}
+  ${row("العام الدراسي / الصف", `${course?.name ?? "—"}${klass ? " — " + klass.name : ""}`)}
   ${row("الفاتورة", invoice?.number ?? "—")}
   ${row("البيان", statement)}
   ${s.receipt_show_payment_method !== false ? row("طريقة الدفع", methodLabel) : ""}
