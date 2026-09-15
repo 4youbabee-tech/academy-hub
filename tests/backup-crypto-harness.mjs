@@ -12,17 +12,18 @@ try {
   const encrypted = path.join(temp, "backup.ahbackup");
   const restored = path.join(temp, "restored.sqlite");
   const original = Buffer.concat([Buffer.from("SQLite format 3\0"), randomBytes(4096)]);
-  const key = randomBytes(32);
+  const passphrase = "Academy Backup 2026!";
 
   await writeFile(source, original);
-  await encryptBackupFile(source, encrypted, key);
+  await encryptBackupFile(source, encrypted, passphrase);
   assert.equal(await isEncryptedBackup(encrypted), true);
   assert.equal(await isEncryptedBackup(source), false);
   assert.equal((await readFile(encrypted)).includes(Buffer.from("SQLite format 3\0")), false);
 
-  await decryptBackupFile(encrypted, restored, key);
+  await decryptBackupFile(encrypted, restored, passphrase);
   assert.deepEqual(await readFile(restored), original);
-  await assert.rejects(() => decryptBackupFile(encrypted, restored, randomBytes(32)), /تعذر فك النسخة/);
+  await assert.rejects(() => decryptBackupFile(encrypted, restored, "Wrong Password 123!"), /تعذر فك النسخة/);
+  await assert.rejects(() => encryptBackupFile(source, encrypted, "short"), /10 أحرف/);
 
   console.log("backup-crypto-harness: OK");
 } finally {
