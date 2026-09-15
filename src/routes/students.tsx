@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
@@ -20,8 +20,14 @@ export const Route = createFileRoute("/students")({
       { name: "description", content: "إدارة سجلات الطلاب والملفات المالية والأرشيف." },
     ],
   }),
-  component: StudentsPage,
+  component: StudentsRouteLayout,
 });
+
+function StudentsRouteLayout() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  if (pathname !== "/students" && pathname.startsWith("/students/")) return <Outlet />;
+  return <StudentsPage />;
+}
 
 const EMPTY = {
   full_name: "",
