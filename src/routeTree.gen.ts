@@ -22,6 +22,7 @@ import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StudentsRouteImport } from './routes/students'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as StudentsIdRouteImport } from './routes/students.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -88,6 +89,11 @@ const UsersRoute = UsersRouteImport.update({
   path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudentsIdRoute = StudentsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => StudentsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -101,8 +107,9 @@ export interface FileRoutesByFullPath {
   '/receipts': typeof ReceiptsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
-  '/students': typeof StudentsRoute
+  '/students': typeof StudentsRouteWithChildren
   '/users': typeof UsersRoute
+  '/students/$id': typeof StudentsIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -116,8 +123,9 @@ export interface FileRoutesByTo {
   '/receipts': typeof ReceiptsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
-  '/students': typeof StudentsRoute
+  '/students': typeof StudentsRouteWithChildren
   '/users': typeof UsersRoute
+  '/students/$id': typeof StudentsIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -132,8 +140,9 @@ export interface FileRoutesById {
   '/receipts': typeof ReceiptsRoute
   '/reports': typeof ReportsRoute
   '/settings': typeof SettingsRoute
-  '/students': typeof StudentsRoute
+  '/students': typeof StudentsRouteWithChildren
   '/users': typeof UsersRoute
+  '/students/$id': typeof StudentsIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/users'
+    | '/students/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/users'
+    | '/students/$id'
   id:
     | '__root__'
     | '/'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/students'
     | '/users'
+    | '/students/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -195,7 +207,7 @@ export interface RootRouteChildren {
   ReceiptsRoute: typeof ReceiptsRoute
   ReportsRoute: typeof ReportsRoute
   SettingsRoute: typeof SettingsRoute
-  StudentsRoute: typeof StudentsRoute
+  StudentsRoute: typeof StudentsRouteWithChildren
   UsersRoute: typeof UsersRoute
 }
 
@@ -292,8 +304,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/students/$id': {
+      id: '/students/$id'
+      path: '/$id'
+      fullPath: '/students/$id'
+      preLoaderRoute: typeof StudentsIdRouteImport
+      parentRoute: typeof StudentsRoute
+    }
   }
 }
+
+interface StudentsRouteChildren {
+  StudentsIdRoute: typeof StudentsIdRoute
+}
+
+const StudentsRouteChildren: StudentsRouteChildren = {
+  StudentsIdRoute: StudentsIdRoute,
+}
+
+const StudentsRouteWithChildren = StudentsRoute._addFileChildren(
+  StudentsRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -307,7 +338,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReceiptsRoute: ReceiptsRoute,
   ReportsRoute: ReportsRoute,
   SettingsRoute: SettingsRoute,
-  StudentsRoute: StudentsRoute,
+  StudentsRoute: StudentsRouteWithChildren,
   UsersRoute: UsersRoute,
 }
 export const routeTree = rootRouteImport
@@ -320,6 +351,6 @@ declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>
   }
 }
