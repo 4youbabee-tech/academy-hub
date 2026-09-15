@@ -19,6 +19,7 @@ const DATABASE_COLLECTIONS = new Set([
 ]);
 const PAGE_LIMITS = new Set([10, 20, 50]);
 const MAX_SEARCH_LENGTH = 200;
+const MAX_BACKUP_PASSPHRASE_LENGTH = 1024;
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 
@@ -31,6 +32,16 @@ function validatedPageRequest(collection, request = {}) {
   const search = typeof request?.search === "string" ? request.search.trim() : "";
   if (search.length > MAX_SEARCH_LENGTH) throw new Error("Search text is too long.");
   return { limit, offset, search };
+}
+
+function validatedBackupRequest(request) {
+  if (!request || typeof request !== "object") throw new Error("Invalid backup request.");
+  const passphrase = typeof request.passphrase === "string" ? request.passphrase.normalize("NFKC") : "";
+  if (passphrase.length < 10) throw new Error("كلمة حماية النسخة الاحتياطية يجب أن تكون 10 أحرف على الأقل.");
+  if (Buffer.byteLength(passphrase, "utf8") > MAX_BACKUP_PASSPHRASE_LENGTH) {
+    throw new Error("كلمة حماية النسخة الاحتياطية طويلة جدًا.");
+  }
+  return { passphrase };
 }
 
 const api = {
@@ -52,8 +63,8 @@ const api = {
     copyMachineId: () => invoke("academy:license:copy-machine-id"),
   }),
   backup: Object.freeze({
-    create: () => invoke("academy:backup:create"),
-    restore: () => invoke("academy:backup:restore"),
+    create: (request) => invoke("academy:backup:create", validatedBackupRequest(request)),
+    restore: (request) => invoke("academy:backup:restore", validatedBackupRequest(request)),
   }),
   print: Object.freeze({
     html: (request) => {
