@@ -1,0 +1,43 @@
+name: Apply settings data reset patch
+
+on:
+  push:
+    branches:
+      - feature/settings-data-reset-money-format
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: feature/settings-data-reset-money-format
+          fetch-depth: 0
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Apply integration patch
+        run: node scripts/apply-settings-reset-integration.mjs
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Run full quality gate
+        run: npm run ci:verify
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Commit verified result
+        run: |
+          rm scripts/apply-settings-reset-integration.mjs
+          rm .github/workflows/apply-settings-data-reset.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(settings): add protected operational data reset"
+          git push origin HEAD:feature/settings-data-reset-money-format
