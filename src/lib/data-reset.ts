@@ -32,9 +32,9 @@ export function buildOperationalResetSnapshot(source: DB, ownerUserId: ID): DB {
     ...next.settings,
     student_code_next: 1,
     receipt_next: 1,
-    payroll_receipt_next: next.settings.payroll_receipt_next === undefined ? undefined : 1,
     monthly_generation_last_period: null,
   };
+  if (next.settings.payroll_receipt_next !== undefined) next.settings.payroll_receipt_next = 1;
 
   audit(
     next,
