@@ -1,0 +1,110 @@
+name: Apply automatic backup encryption
+
+on:
+  push:
+    branches: [academy-v1.1.1-auto-backup-encryption]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: academy-v1.1.1-auto-backup-encryption
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Wire automatic encryption and tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"missing block in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace('desktop/main.mjs', 'import { randomUUID } from "node:crypto";', 'import { randomBytes, randomUUID } from "node:crypto";')
+          replace('desktop/main.mjs', 'import { unlink, writeFile } from "node:fs/promises";', 'import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";')
+
+          helper = r'''
+async function loadOrCreateAutomaticBackupPassphrase(userData) {
+  const securityDirectory = path.join(userData, "security");
+  const keyPath = path.join(securityDirectory, "backup-passphrase.bin");
+  await mkdir(securityDirectory, { recursive: true });
+
+  if (!safeStorage.isEncryptionAvailable()) {
+    if (app.isPackaged) throw new Error("Windows Secure Storage غير متاح؛ لا يمكن حماية النسخ التلقائية بأمان.");
+    return null;
+  }
+
+  try {
+    const protectedValue = await readFile(keyPath);
+    const value = safeStorage.decryptString(protectedValue);
+    if (value.length < 20) throw new Error("مفتاح حماية النسخ التلقائية غير صالح.");
+    return value;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const value = randomBytes(32).toString("base64url");
+  await writeFile(keyPath, safeStorage.encryptString(value), { mode: 0o600 });
+  return value;
+}
+'''
+          replace('desktop/main.mjs', '\nfunction validateSnapshotPayload(snapshot) {', '\n' + helper + '\nfunction validateSnapshotPayload(snapshot) {')
+          replace('desktop/main.mjs', '  database = await AcademyDatabase.open({ databasePath, backupDirectory });\n  protectedBackup = new ProtectedBackupService({ database, backupDirectory });', '  database = await AcademyDatabase.open({ databasePath, backupDirectory });\n  const automaticPassphrase = await loadOrCreateAutomaticBackupPassphrase(userData);\n  protectedBackup = new ProtectedBackupService({ database, backupDirectory, automaticPassphrase });')
+          replace('desktop/main.mjs', '    void database.createAutomaticBackupIfDue().catch((error) => log("Automatic backup failed", error));', '    void protectedBackup.createAutomaticIfDue().catch((error) => log("Automatic backup failed", error));')
+
+          # Extend integration test with encrypted automatic backup verification.
+          p = Path('tests/protected-backup-harness.mjs')
+          text = p.read_text()
+          text = text.replace('const service = new ProtectedBackupService({ database, backupDirectory });', 'const service = new ProtectedBackupService({ database, backupDirectory, automaticPassphrase: "Device-Automatic-Secret-123456789" });')
+          marker = '  assert.equal(database.loadSnapshot().students[0]?.full_name, "طالب محمي", "legacy SQLite backup remains restorable");\n\n  console.log("protected-backup-harness: OK");'
+          addition = '  assert.equal(database.loadSnapshot().students[0]?.full_name, "طالب محمي", "legacy SQLite backup remains restorable");\n\n  database.setMeta("last_auto_backup_at", null);\n  const automatic = await service.createAutomaticIfDue();\n  assert.ok(automatic?.endsWith(".ahbackup"), "automatic backup must use encrypted .ahbackup format");\n  const automaticBytes = await readFile(automatic);\n  assert.equal(automaticBytes.includes(Buffer.from("SQLite format 3\\0")), false, "automatic backup must not expose SQLite header");\n  assert.equal(automaticBytes.includes(Buffer.from("طالب محمي", "utf8")), false, "automatic backup must not expose student data");\n\n  console.log("protected-backup-harness: OK");'
+          if marker not in text:
+              raise SystemExit('protected backup test marker missing')
+          p.write_text(text.replace(marker, addition, 1))
+
+          # Keep in-app guide accurate.
+          p = Path('src/components/HelpGuide.tsx')
+          text = p.read_text()
+          old = 'قاعدة SQLite الحية داخل Desktop ما زالت تحتاج تشفير at-rest حقيقي قبل إصدار EXE النهائي؛ النسخ اليدوية فقط أصبحت مشفرة الآن.'
+          new = 'قاعدة SQLite الحية داخل Desktop ما زالت تحتاج تشفير at-rest حقيقي قبل إصدار EXE النهائي؛ النسخ اليدوية واليومية أصبحت مشفرة، لكن ملف قاعدة العمل الحي نفسه ليس SQLCipher بعد.'
+          if old not in text:
+              raise SystemExit('help security reminder marker missing')
+          p.write_text(text.replace(old, new, 1))
+
+          # Update the associated illustrated help asset too.
+          p = Path('public/help/05-admin-backup.svg')
+          text = p.read_text()
+          text = text.replace('نسخة ahbackup محمية بكلمة مرور', 'نسخ يدوية ويومية مشفرة + صلاحيات وتدقيق')
+          text = text.replace('ملف .ahbackup + كلمة حماية', 'يدوي .ahbackup + يومي مشفر')
+          text = text.replace('أنشئ ← انقل ← استعد', 'يدوي للنقل · يومي تلقائي')
+          text = text.replace('على جهاز جديد بنفس الكلمة', 'اليدوي ينتقل بنفس كلمة الحماية')
+          p.write_text(text)
+          PY
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Full quality gate
+        run: npm run ci:verify
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+      - name: Commit verified result only
+        shell: bash
+        run: |
+          rm .github/workflows/apply-auto-backup-encryption.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(backup): encrypt automatic desktop backups"
+          git push origin HEAD:academy-v1.1.1-auto-backup-encryption
