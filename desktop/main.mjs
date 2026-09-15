@@ -10,14 +10,14 @@ import {
   shell,
 } from "electron";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
 
-import { AcademyDatabase } from "./database.mjs";
+import { AcademyDatabase, ACADEMY_COLLECTIONS } from "./database.mjs";
 import { LicenseManager } from "./licensing.mjs";
 import { ProtectedBackupService } from "./protected-backup.mjs";
 import { UpdateService } from "./update-service.mjs";
@@ -48,6 +48,49 @@ function log(message, error) {
       appendFileSync(logFile, line, "utf8");
     } catch {
       // Logging must never prevent the application from starting.
+    }
+  }
+}
+
+async function loadOrCreateAutomaticBackupPassphrase(userData) {
+  const securityDirectory = path.join(userData, "security");
+  const keyPath = path.join(securityDirectory, "backup-passphrase.bin");
+  await mkdir(securityDirectory, { recursive: true });
+
+  if (!safeStorage.isEncryptionAvailable()) {
+    if (app.isPackaged) {
+      throw new Error("Windows Secure Storage غير متاح؛ لا يمكن حماية النسخ التلقائية بأمان.");
+    }
+    return null;
+  }
+
+  try {
+    const protectedValue = await readFile(keyPath);
+    const value = safeStorage.decryptString(protectedValue);
+    if (value.length < 20) throw new Error("مفتاح حماية النسخ التلقائية غير صالح.");
+    return value;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const value = randomBytes(32).toString("base64url");
+  await writeFile(keyPath, safeStorage.encryptString(value), { mode: 0o600 });
+  return value;
+}
+
+function validateSnapshotPayload(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new Error("صيغة قاعدة البيانات غير صالحة.");
+  }
+  if (!Number.isInteger(snapshot.schema_version) || snapshot.schema_version < 1 || snapshot.schema_version > 4) {
+    throw new Error("إصدار قاعدة البيانات غير صالح.");
+  }
+  if (!snapshot.settings || typeof snapshot.settings !== "object" || Array.isArray(snapshot.settings)) {
+    throw new Error("إعدادات قاعدة البيانات غير صالحة.");
+  }
+  for (const collection of ACADEMY_COLLECTIONS) {
+    if (!Array.isArray(snapshot[collection])) {
+      throw new Error(`مجموعة قاعدة البيانات غير صالحة: ${collection}`);
     }
   }
 }
@@ -113,7 +156,7 @@ function stopWebServer() {
 
 function assertTrustedSender(event) {
   const senderUrl = event.senderFrame?.url ?? "";
-  if (!allowedOrigin || !senderUrl.startsWith(`${allowedOrigin}/`) && senderUrl !== allowedOrigin) {
+  if (!allowedOrigin || (!senderUrl.startsWith(`${allowedOrigin}/`) && senderUrl !== allowedOrigin)) {
     throw new Error("Untrusted IPC sender.");
   }
 }
@@ -269,6 +312,7 @@ function installIpcHandlers() {
   });
   handle("academy:database:save", (snapshot) => {
     requireDatabaseAccess();
+    validateSnapshotPayload(snapshot);
     const payloadSize = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
     if (payloadSize > 64 * 1024 * 1024) throw new Error("حجم قاعدة البيانات غير منطقي.");
     database.saveSnapshot(snapshot);
@@ -409,7 +453,8 @@ async function bootstrap() {
   const databasePath = path.join(userData, "data", "academy-hub.sqlite");
   const backupDirectory = path.join(userData, "backups");
   database = await AcademyDatabase.open({ databasePath, backupDirectory });
-  protectedBackup = new ProtectedBackupService({ database, backupDirectory });
+  const automaticPassphrase = await loadOrCreateAutomaticBackupPassphrase(userData);
+  protectedBackup = new ProtectedBackupService({ database, backupDirectory, automaticPassphrase });
   licenseManager = await LicenseManager.create({
     licensePath: path.join(userData, "license", "academy.license"),
     publicKeyPath: path.join(__dirname, "resources", "license-public.pem"),
@@ -437,7 +482,7 @@ async function bootstrap() {
   mainWindow = await createMainWindow(url);
 
   setTimeout(() => {
-    void database.createAutomaticBackupIfDue().catch((error) => log("Automatic backup failed", error));
+    void protectedBackup.createAutomaticIfDue().catch((error) => log("Automatic backup failed", error));
   }, 10_000).unref();
 
   if (app.isPackaged) {
