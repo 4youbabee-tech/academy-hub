@@ -1,0 +1,39 @@
+name: Pin generated student route tree
+
+on:
+  push:
+    branches: [academy-v1.1.1-final-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: academy-v1.1.1-final-hardening
+          fetch-depth: 0
+      - name: Pin generated route tree as an explicit branch change
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/routeTree.gen.ts')
+          text = p.read_text()
+          marker = '// noinspection JSUnusedGlobalSymbols\n'
+          comment = '// Hardening: keep the /students/$id child route pinned in PR merge refs.\n'
+          if "StudentsIdRouteImport" not in text or "'/students/$id'" not in text:
+              raise SystemExit('student detail route is missing from generated tree')
+          if comment not in text:
+              text = text.replace(marker, marker + '\n' + comment, 1)
+          p.write_text(text)
+          PY
+          rm .github/workflows/fix-route-tree-merge.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(router): pin student detail route in generated tree"
+          git push origin HEAD:academy-v1.1.1-final-hardening
