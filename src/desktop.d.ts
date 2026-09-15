@@ -32,8 +32,8 @@ interface AcademyDesktopApi {
     copyMachineId(): Promise<{ copied: boolean }>;
   };
   backup: {
-    create(): Promise<{ cancelled: boolean; path?: string }>;
-    restore(): Promise<{ cancelled: boolean; restarting?: boolean; safetyBackup?: string }>;
+    create(request: { passphrase: string }): Promise<{ cancelled: boolean; path?: string }>;
+    restore(request: { passphrase: string }): Promise<{ cancelled: boolean; restarting?: boolean; safetyBackup?: string }>;
   };
   print: {
     html(request: {
