@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { decryptBackupFile, encryptBackupFile, isEncryptedBackup } from "./backup-crypto.mjs";
-
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 function assertPassphrase(passphrase) {
   if (typeof passphrase !== "string" || passphrase.normalize("NFKC").length < 10) {
@@ -13,25 +11,10 @@ function assertPassphrase(passphrase) {
   return passphrase.normalize("NFKC");
 }
 
-function timestamp(date = new Date()) {
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-}
-
-function parseMeta(value) {
-  if (typeof value !== "string") return null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
 export class ProtectedBackupService {
-  constructor({ database, backupDirectory, automaticPassphrase = null }) {
+  constructor({ database, backupDirectory }) {
     this.database = database;
     this.backupDirectory = backupDirectory;
-    this.automaticPassphrase = typeof automaticPassphrase === "string" ? automaticPassphrase : null;
   }
 
   async create(destination, passphrase) {
@@ -58,31 +41,6 @@ export class ProtectedBackupService {
       return await this.database.restoreFrom(temporary);
     } finally {
       await rm(temporary, { force: true });
-    }
-  }
-
-  async createAutomaticIfDue() {
-    if (!this.automaticPassphrase || !this.database.loadSnapshot()) return null;
-    const last = parseMeta(this.database.getMeta("last_auto_backup_at"));
-    const lastTime = typeof last === "string" ? Date.parse(last) : 0;
-    if (Number.isFinite(lastTime) && Date.now() - lastTime < ONE_DAY_MS) return null;
-
-    const destination = path.join(this.backupDirectory, `academy-hub-auto-${timestamp()}.ahbackup`);
-    await this.create(destination, this.automaticPassphrase);
-    this.database.setMeta("last_auto_backup_at", new Date().toISOString());
-    await this.pruneAutomaticBackups(30);
-    return destination;
-  }
-
-  async pruneAutomaticBackups(retain = 30) {
-    const files = (await readdir(this.backupDirectory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && /^academy-hub-auto-.*\.(?:ahbackup|sqlite)$/i.test(entry.name))
-      .map((entry) => entry.name)
-      .sort()
-      .reverse();
-
-    for (const filename of files.slice(Math.max(1, retain))) {
-      await rm(path.join(this.backupDirectory, filename), { force: true });
     }
   }
 }
