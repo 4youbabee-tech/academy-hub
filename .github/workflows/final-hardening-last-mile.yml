@@ -1,0 +1,143 @@
+name: Final hardening last mile
+
+on:
+  push:
+    branches: [academy-v1.1.1-final-hardening]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: academy-v1.1.1-final-hardening
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Apply final targeted safeguards
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace(path, old, new):
+              p=Path(path); t=p.read_text()
+              if old not in t: raise SystemExit(f"missing block {path}: {old[:100]!r}")
+              p.write_text(t.replace(old,new,1))
+
+          # Database indexes created only after migrations/tables exist.
+          replace('desktop/database.mjs','    this.runMigrations(currentVersion);\n  }','    this.runMigrations(currentVersion);\n    this.ensurePerformanceIndexes();\n  }')
+          replace('desktop/database.mjs','\n  getMeta(key) {','''
+  ensurePerformanceIndexes() {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_entities_student_date ON entities(collection, student_id, date_key);
+      CREATE INDEX IF NOT EXISTS idx_entities_employee_date ON entities(collection, employee_id, date_key);
+      CREATE INDEX IF NOT EXISTS idx_entities_collection_void_date ON entities(collection, is_void, date_key);
+    `);
+  }
+
+  getMeta(key) {''')
+
+          # Trusted main-process validation and Windows-protected automatic backup secret.
+          replace('desktop/main.mjs','import { randomUUID } from "node:crypto";','import { randomBytes, randomUUID } from "node:crypto";')
+          replace('desktop/main.mjs','import { unlink, writeFile } from "node:fs/promises";','import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";')
+          replace('desktop/main.mjs','import { AcademyDatabase } from "./database.mjs";','import { AcademyDatabase, ACADEMY_COLLECTIONS } from "./database.mjs";')
+          helpers=r'''
+async function loadOrCreateAutomaticBackupPassphrase(userData) {
+  const securityDirectory = path.join(userData, "security");
+  const keyPath = path.join(securityDirectory, "backup-passphrase.bin");
+  await mkdir(securityDirectory, { recursive: true });
+  if (!safeStorage.isEncryptionAvailable()) {
+    if (app.isPackaged) throw new Error("Windows Secure Storage غير متاح؛ لا يمكن حماية النسخ التلقائية بأمان.");
+    return null;
+  }
+  try {
+    const protectedValue = await readFile(keyPath);
+    const value = safeStorage.decryptString(protectedValue);
+    if (value.length < 20) throw new Error("مفتاح حماية النسخ التلقائية غير صالح.");
+    return value;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const value = randomBytes(32).toString("base64url");
+  await writeFile(keyPath, safeStorage.encryptString(value), { mode: 0o600 });
+  return value;
+}
+
+function validateSnapshotPayload(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new Error("صيغة قاعدة البيانات غير صالحة.");
+  if (!Number.isInteger(snapshot.schema_version) || snapshot.schema_version < 1 || snapshot.schema_version > 4) throw new Error("إصدار قاعدة البيانات غير صالح.");
+  if (!snapshot.settings || typeof snapshot.settings !== "object" || Array.isArray(snapshot.settings)) throw new Error("إعدادات قاعدة البيانات غير صالحة.");
+  for (const collection of ACADEMY_COLLECTIONS) {
+    if (!Array.isArray(snapshot[collection])) throw new Error(`مجموعة قاعدة البيانات غير صالحة: ${collection}`);
+  }
+}
+
+'''
+          replace('desktop/main.mjs','\nfunction reserveLoopbackPort() {','\n'+helpers+'function reserveLoopbackPort() {')
+          replace('desktop/main.mjs','    requireDatabaseAccess();\n    const payloadSize = Buffer.byteLength(JSON.stringify(snapshot), "utf8");','    requireDatabaseAccess();\n    validateSnapshotPayload(snapshot);\n    const payloadSize = Buffer.byteLength(JSON.stringify(snapshot), "utf8");')
+          replace('desktop/main.mjs','  database = await AcademyDatabase.open({ databasePath, backupDirectory });\n  protectedBackup = new ProtectedBackupService({ database, backupDirectory });','  database = await AcademyDatabase.open({ databasePath, backupDirectory });\n  const automaticPassphrase = await loadOrCreateAutomaticBackupPassphrase(userData);\n  protectedBackup = new ProtectedBackupService({ database, backupDirectory, automaticPassphrase });')
+          replace('desktop/main.mjs','    void database.createAutomaticBackupIfDue().catch((error) => log("Automatic backup failed", error));','    void protectedBackup.createAutomaticIfDue().catch((error) => log("Automatic backup failed", error));')
+
+          # Integration harness: encrypted portable + encrypted automatic backup, wrong password fails.
+          Path('tests/protected-backup-harness.mjs').write_text(r'''import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { AcademyDatabase } from "../desktop/database.mjs";
+import { ProtectedBackupService } from "../desktop/protected-backup.mjs";
+
+const now = new Date().toISOString();
+const dir = await mkdtemp(path.join(os.tmpdir(), "academy-protected-backup-"));
+let db;
+try {
+  const databasePath = path.join(dir, "academy.sqlite");
+  const backupDirectory = path.join(dir, "backups");
+  db = await AcademyDatabase.open({ databasePath, backupDirectory });
+  db.saveSnapshot({
+    schema_version: 4,
+    settings: { institute_name: "Test", currency: "USD" }, expense_categories: [],
+    users: [{ id: "owner", created_at: now, updated_at: now, branch_id: "b", sync_status: "local", username: "owner", full_name: "Owner", password_hash: "x", role: "owner", is_active: true }],
+    students: [], courses: [], classes: [], enrollments: [], invoices: [], installments: [], payments: [], employees: [], payroll_items: [], payroll_payments: [], advances: [], expenses: [], incomes: [], audit_log: [],
+  });
+  const service = new ProtectedBackupService({ database: db, backupDirectory, automaticPassphrase: "Device-Automatic-Secret-123456789" });
+  const portable = path.join(dir, "portable.ahbackup");
+  await service.create(portable, "Portable-Password-123");
+  assert.equal((await readFile(portable)).includes(Buffer.from("SQLite format 3\0")), false);
+  await assert.rejects(() => service.restore(portable, "Wrong-Password-123"), /تعذر فك النسخة/);
+  await service.restore(portable, "Portable-Password-123");
+  assert.equal(db.loadSnapshot().users[0].username, "owner");
+  db.setMeta("last_auto_backup_at", null);
+  const automatic = await service.createAutomaticIfDue();
+  assert.ok(automatic?.endsWith(".ahbackup"));
+  assert.equal((await readFile(automatic)).includes(Buffer.from("SQLite format 3\0")), false);
+  console.log("protected-backup-harness: OK");
+} finally {
+  try { db?.close(); } catch {}
+  await rm(dir, { recursive: true, force: true });
+}
+''')
+          pkg=Path('package.json'); data=json.loads(pkg.read_text())
+          script=data['scripts']['test:desktop']
+          if 'protected-backup-harness.mjs' not in script:
+            data['scripts']['test:desktop']=script.replace('node tests/desktop-harness.mjs','node tests/protected-backup-harness.mjs && node tests/desktop-harness.mjs')
+          pkg.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+          PY
+      - run: npm ci
+      - run: npm run ci:verify
+      - run: npm audit --omit=dev
+      - name: Commit verified changes
+        run: |
+          rm .github/workflows/final-hardening-last-mile.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(hardening): finish encrypted backups and database safeguards"
+          git pull --rebase origin academy-v1.1.1-final-hardening
+          git push origin HEAD:academy-v1.1.1-final-hardening
