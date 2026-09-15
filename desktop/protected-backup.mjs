@@ -74,6 +74,12 @@ export class ProtectedBackupService {
     return destination;
   }
 
+  async createResetSafety() {
+    if (!this.automaticPassphrase) throw new Error("حماية نسخة الأمان غير متاحة على هذا الجهاز.");
+    const destination = path.join(this.backupDirectory, `academy-hub-before-data-reset-${timestamp()}.ahbackup`);
+    return this.create(destination, this.automaticPassphrase);
+  }
+
   async latestAutomaticBackup() {
     let entries;
     try {
