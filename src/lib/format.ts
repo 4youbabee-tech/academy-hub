@@ -1,6 +1,11 @@
 export function money(minor: number, currency = "USD"): string {
-  const v = (minor ?? 0) / 100;
-  return `${v.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  const safeMinor = Number.isFinite(minor) ? Math.round(minor ?? 0) : 0;
+  const value = safeMinor / 100;
+  const hasFraction = Math.abs(safeMinor % 100) !== 0;
+  return `${value.toLocaleString("ar-EG", {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: hasFraction ? 2 : 0,
+  })} ${currency}`;
 }
 
 export function toMinor(input: string | number): number {

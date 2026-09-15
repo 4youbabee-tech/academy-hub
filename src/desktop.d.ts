@@ -35,6 +35,7 @@ interface AcademyDesktopApi {
     create(request: { passphrase: string }): Promise<{ cancelled: boolean; path?: string }>;
     restore(request: { passphrase: string }): Promise<{ cancelled: boolean; restarting?: boolean; safetyBackup?: string }>;
     restoreLatestAutomatic(): Promise<{ cancelled: boolean; restarting?: boolean; source?: string; safetyBackup?: string }>;
+    createResetSafety(): Promise<{ path: string }>;
   };
   print: {
     html(request: {

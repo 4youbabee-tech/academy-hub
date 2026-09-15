@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
+import { DataResetPanel } from "@/components/DataResetPanel";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
 import { audit, transact, uid } from "@/lib/db";
 import { money, toMinor } from "@/lib/format";
@@ -472,6 +473,8 @@ function SettingsPage() {
           </div>
         </div>
       ) : null}
+
+      <DataResetPanel />
 
       {canEdit && (
         <div className="mt-6 flex justify-end">
