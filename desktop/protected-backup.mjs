@@ -62,7 +62,7 @@ export class ProtectedBackupService {
   }
 
   async createAutomaticIfDue() {
-    if (!this.automaticPassphrase || !this.database.loadSnapshot()) return null;
+    if (!this.automaticPassphrase || !this.database.getMeta("settings")) return null;
     const last = parseMeta(this.database.getMeta("last_auto_backup_at"));
     const lastTime = typeof last === "string" ? Date.parse(last) : 0;
     if (Number.isFinite(lastTime) && Date.now() - lastTime < ONE_DAY_MS) return null;
@@ -74,8 +74,46 @@ export class ProtectedBackupService {
     return destination;
   }
 
+  async latestAutomaticBackup() {
+    let entries;
+    try {
+      entries = await readdir(this.backupDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    }
+    const latest = entries
+      .filter((entry) => entry.isFile() && /^academy-hub-auto-.*\.ahbackup$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()[0];
+    return latest ? path.join(this.backupDirectory, latest) : null;
+  }
+
+  async restoreLatestAutomatic() {
+    if (!this.automaticPassphrase) throw new Error("حماية النسخ التلقائية غير متاحة على هذا الجهاز.");
+    const source = await this.latestAutomaticBackup();
+    if (!source) throw new Error("لا توجد نسخة احتياطية تلقائية مشفرة متاحة بعد.");
+
+    const temporary = path.join(this.backupDirectory, `.auto-restore-${randomUUID()}.sqlite`);
+    try {
+      await decryptBackupFile(source, temporary, this.automaticPassphrase);
+      const safetyBackup = await this.database.restoreFrom(temporary);
+      return { source, safetyBackup };
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+
   async pruneAutomaticBackups(retain = 30) {
-    const files = (await readdir(this.backupDirectory, { withFileTypes: true }))
+    let entries;
+    try {
+      entries = await readdir(this.backupDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
+    const files = entries
       .filter((entry) => entry.isFile() && /^academy-hub-auto-.*\.(?:ahbackup|sqlite)$/i.test(entry.name))
       .map((entry) => entry.name)
       .sort()

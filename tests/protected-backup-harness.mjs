@@ -31,7 +31,7 @@ let database;
 try {
   database = await AcademyDatabase.open({ databasePath, backupDirectory });
   database.saveSnapshot(snapshot);
-  const service = new ProtectedBackupService({ database, backupDirectory });
+  const service = new ProtectedBackupService({ database, backupDirectory, automaticPassphrase: "Device-Automatic-Secret-123456789" });
 
   await service.create(protectedPath, passphrase);
   const protectedBytes = await readFile(protectedPath);
@@ -53,6 +53,19 @@ try {
   database.saveSnapshot({ ...snapshot, students: [] });
   await service.restore(legacyPath, passphrase);
   assert.equal(database.loadSnapshot().students[0]?.full_name, "طالب محمي", "legacy SQLite backup remains restorable");
+
+  database.setMeta("last_auto_backup_at", null);
+  const automatic = await service.createAutomaticIfDue();
+  assert.ok(automatic?.endsWith(".ahbackup"), "automatic backup must use encrypted .ahbackup format");
+  const automaticBytes = await readFile(automatic);
+  assert.equal(automaticBytes.subarray(0, 5).toString("ascii"), "AHBK2");
+  assert.equal(automaticBytes.includes(Buffer.from("SQLite format 3\0")), false, "automatic backup must hide SQLite header");
+  assert.equal(automaticBytes.includes(Buffer.from("طالب محمي", "utf8")), false, "automatic backup must hide student data");
+
+  database.saveSnapshot({ ...snapshot, students: [] });
+  const automaticRestore = await service.restoreLatestAutomatic();
+  assert.equal(automaticRestore.source, automatic);
+  assert.equal(database.loadSnapshot().students[0]?.full_name, "طالب محمي", "automatic backup must restore on same device secret");
 
   console.log("protected-backup-harness: OK");
 } finally {

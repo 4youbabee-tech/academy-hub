@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
   <title id="title">حماية النظام والنسخ الاحتياطي المشفر</title>
-  <desc id="desc">المستخدمون والصلاحيات وسجل التدقيق ونسخة ahbackup محمية بكلمة مرور</desc>
+  <desc id="desc">المستخدمون والصلاحيات وسجل التدقيق ونسخ يدوية ويومية مشفرة + صلاحيات وتدقيق</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#173f47" flood-opacity=".13"/></filter>
     <style>text{font-family:"Segoe UI",Tahoma,Arial,sans-serif}text:not([fill]){fill:#263c42}.small{font-size:14px;fill:#6b7d80}.head{font-size:18px;font-weight:800}</style>
@@ -25,8 +25,8 @@
     <rect x="53" y="108" width="245" height="245" rx="20" fill="white" stroke="#d9e4e1"/>
     <circle cx="176" cy="162" r="34" fill="#eaf5ee"/><rect x="155" y="151" width="42" height="32" rx="6" fill="#48966b"/><path d="M164 151v-8a12 12 0 0 1 24 0v8" fill="none" stroke="#48966b" stroke-width="6"/><circle cx="176" cy="166" r="4" fill="white"/><path d="M176 170v7" stroke="white" stroke-width="3"/>
     <text x="176" y="231" text-anchor="middle" class="head">Backup مشفر</text>
-    <text x="176" y="258" text-anchor="middle" class="small">ملف .ahbackup + كلمة حماية</text>
-    <rect x="75" y="286" width="202" height="42" rx="10" fill="#edf8f1"/><text x="176" y="305" text-anchor="middle" font-size="13" font-weight="700">أنشئ ← انقل ← استعد</text><text x="176" y="321" text-anchor="middle" font-size="11">على جهاز جديد بنفس الكلمة</text>
+    <text x="176" y="258" text-anchor="middle" class="small">يدوي محمول + يومي محلي مشفر</text>
+    <rect x="75" y="286" width="202" height="42" rx="10" fill="#edf8f1"/><text x="176" y="305" text-anchor="middle" font-size="13" font-weight="700">يدوي للنقل · يومي للاستعادة</text><text x="176" y="321" text-anchor="middle" font-size="11">اليومي لنفس الجهاز · اليدوي للنقل</text>
   </g>
 
   <rect x="115" y="378" width="670" height="35" rx="9" fill="#284f57"/><text x="450" y="400" text-anchor="middle" font-size="14" font-weight="700" fill="white">احفظ ملف النسخة وكلمة الحماية في مكانين منفصلين — بدون كلمة الحماية لا يمكن فك النسخة</text>

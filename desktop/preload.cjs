@@ -65,6 +65,7 @@ const api = {
   backup: Object.freeze({
     create: (request) => invoke("academy:backup:create", validatedBackupRequest(request)),
     restore: (request) => invoke("academy:backup:restore", validatedBackupRequest(request)),
+    restoreLatestAutomatic: () => invoke("academy:backup:restore-latest-automatic"),
   }),
   print: Object.freeze({
     html: (request) => {
