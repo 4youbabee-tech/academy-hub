@@ -144,6 +144,23 @@ function BackupPage() {
     }
   }
 
+  async function restoreLatestAutomaticBackup() {
+    if (!desktopApi) return;
+    if (!confirm("سيتم استبدال البيانات الحالية بآخر نسخة تلقائية مشفرة محفوظة على هذا الجهاز ثم إعادة تشغيل البرنامج. هل تريد المتابعة؟")) {
+      return;
+    }
+    setRestoring(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await desktopApi.backup.restoreLatestAutomatic();
+      setMessage("تمت استعادة آخر نسخة تلقائية. جارٍ إعادة تشغيل البرنامج…");
+    } catch (e) {
+      setRestoring(false);
+      setError((e as Error).message || "تعذر استعادة النسخة التلقائية.");
+    }
+  }
+
   async function restoreBackup(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -244,7 +261,7 @@ function BackupPage() {
             className="hidden"
             onChange={restoreBackup}
           />
-          <div className="mt-5">
+          <div className="mt-5 flex flex-wrap gap-2">
             <Button
               variant="secondary"
               onClick={() => {
@@ -255,7 +272,17 @@ function BackupPage() {
             >
               {restoring ? "جارٍ الاستعادة..." : "اختيار ملف واستعادة"}
             </Button>
+            {desktopApi ? (
+              <Button variant="ghost" onClick={() => void restoreLatestAutomaticBackup()} disabled={!canRestore || restoring}>
+                استعادة آخر نسخة تلقائية محلية
+              </Button>
+            ) : null}
           </div>
+          {desktopApi ? (
+            <p className="mt-3 text-xs leading-6 text-muted-foreground">
+              النسخة التلقائية اليومية مشفرة بمفتاح يحميه Windows وتُستعاد من نفس مستخدم Windows على هذا الجهاز. للنقل إلى جهاز جديد استخدم النسخة اليدوية وكلمة حمايتها.
+            </p>
+          ) : null}
           {!canRestore ? (
             <p className="mt-3 text-xs text-muted-foreground">لا تملك صلاحية استعادة نسخة احتياطية.</p>
           ) : null}
@@ -278,7 +305,7 @@ function BackupPage() {
         <h2 className="text-sm font-bold">مهم</h2>
         <p className="mt-2 text-sm leading-7 text-muted-foreground">
           {desktopApi
-            ? "نسخة Windows تحفظ قاعدة العمل داخل مجلد بيانات المستخدم، وليس داخل مجلد التثبيت. النسخ اليدوية الجديدة محمية بكلمة مرور وقابلة للنقل بين الأجهزة. التحديثات لا تمسح البيانات أو الترخيص، ويستمر البرنامج بإنشاء نسخة أمان محلية تلقائية يومية."
+            ? "نسخة Windows تحفظ قاعدة العمل داخل مجلد بيانات المستخدم، وليس داخل مجلد التثبيت. النسخ اليدوية الجديدة محمية بكلمة مرور وقابلة للنقل بين الأجهزة. النسخ اليومية التلقائية محمية أيضًا بمفتاح Windows المحلي ويمكن استعادتها من نفس الجهاز. التحديثات لا تمسح البيانات أو الترخيص."
             : "البيانات في نسخة الويب محفوظة داخل المتصفح عبر IndexedDB، لذلك النسخة الاحتياطية الخارجية مهمة قبل تغيير الجهاز أو مسح بيانات المتصفح."}
         </p>
       </Panel>
