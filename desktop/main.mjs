@@ -358,6 +358,12 @@ function installIpcHandlers() {
     }
   });
 
+  handle("academy:backup:create-reset-safety", async () => {
+    requireDatabaseAccess();
+    const path = await protectedBackup.createResetSafety();
+    return { path };
+  });
+
   handle("academy:backup:restore-latest-automatic", async () => {
     requireDatabaseAccess();
     restoring = true;

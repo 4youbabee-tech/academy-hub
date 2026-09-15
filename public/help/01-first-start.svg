@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
   <title id="title">إعداد Academy Hub لأول مرة</title>
-  <desc id="desc">تسجيل الدخول ثم إعدادات المعهد والمستخدمون والنسخ الاحتياطي</desc>
+  <desc id="desc">تسجيل الدخول ثم الإعدادات والمستخدمون والنسخ الاحتياطي ومسح بيانات التجربة الآمن</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#173f47" flood-opacity=".12"/></filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3e7f85"/></marker>
@@ -18,7 +18,7 @@
     <text x="750" y="205" text-anchor="middle" font-size="15" fill="#e5f2f1">لوحة المعلومات</text>
     <text x="750" y="239" text-anchor="middle" font-size="15" fill="#e5f2f1">الإعدادات</text>
     <text x="750" y="273" text-anchor="middle" font-size="15" fill="#e5f2f1">المستخدمون</text>
-    <text x="750" y="307" text-anchor="middle" font-size="15" fill="#e5f2f1">النسخ الاحتياطي</text>
+    <text x="750" y="307" text-anchor="middle" font-size="15" fill="#e5f2f1">النسخ / مسح التجربة</text>
 
     <rect x="90" y="132" width="530" height="62" rx="13" fill="#eef6f5"/>
     <text x="590" y="157" text-anchor="end" class="label">بيانات المعهد</text>

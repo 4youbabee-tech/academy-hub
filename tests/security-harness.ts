@@ -40,4 +40,6 @@ await assert.rejects(
   "first-run initializer must never create a second owner after setup",
 );
 
+await import("./data-reset-harness.ts");
+
 console.log("security-harness: OK");

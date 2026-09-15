@@ -67,6 +67,12 @@ try {
   assert.equal(automaticRestore.source, automatic);
   assert.equal(database.loadSnapshot().students[0]?.full_name, "طالب محمي", "automatic backup must restore on same device secret");
 
+  const resetSafety = await service.createResetSafety();
+  assert.ok(resetSafety.endsWith(".ahbackup"), "reset safety backup must be encrypted");
+  const resetSafetyBytes = await readFile(resetSafety);
+  assert.equal(resetSafetyBytes.subarray(0, 5).toString("ascii"), "AHBK2");
+  assert.equal(resetSafetyBytes.includes(Buffer.from("SQLite format 3\0")), false, "reset safety backup must hide SQLite header");
+
   console.log("protected-backup-harness: OK");
 } finally {
   if (database) database.close();
