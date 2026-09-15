@@ -27,6 +27,8 @@ export function DataResetPanel() {
   const [success, setSuccess] = useState<string | null>(null);
 
   if (!db || !user || user.role !== "owner") return null;
+  const currentDb = db;
+  const currentUser = user;
 
   async function executeReset() {
     if (confirmation.trim() !== DATA_RESET_CONFIRMATION) return;
@@ -39,10 +41,10 @@ export function DataResetPanel() {
       if (desktopApi) {
         await desktopApi.backup.createResetSafety();
       } else {
-        downloadBrowserSafetyBackup(JSON.stringify(db, null, 2), db.settings.institute_name);
+        downloadBrowserSafetyBackup(JSON.stringify(currentDb, null, 2), currentDb.settings.institute_name);
       }
 
-      await resetOperationalData(user.id);
+      await resetOperationalData(currentUser.id);
       setStage("closed");
       setConfirmation("");
       setSuccess("تم إنشاء نسخة أمان ومسح بيانات التشغيل بنجاح. بقي المستخدمون والإعدادات وسجل التدقيق محفوظين.");
