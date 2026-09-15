@@ -1,7 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
+import { StudentCardModal } from "@/components/StudentCardModal";
 import { StudentEnrollmentModal } from "@/components/StudentEnrollmentModal";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td, Textarea } from "@/components/ui-kit";
 import { insert, nextStudentCode, snapshot, transact, update } from "@/lib/db";
@@ -19,8 +20,14 @@ export const Route = createFileRoute("/students")({
       { name: "description", content: "إدارة سجلات الطلاب والملفات المالية والأرشيف." },
     ],
   }),
-  component: StudentsPage,
+  component: StudentsRouteLayout,
 });
+
+function StudentsRouteLayout() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  if (pathname !== "/students" && pathname.startsWith("/students/")) return <Outlet />;
+  return <StudentsPage />;
+}
 
 const EMPTY = {
   full_name: "",
@@ -46,6 +53,7 @@ function StudentsPage() {
   const [archiveFor, setArchiveFor] = useState<Student | null>(null);
   const [restoreFor, setRestoreFor] = useState<Student | null>(null);
   const [enrollStudentId, setEnrollStudentId] = useState<string | null>(null);
+  const [studentCardId, setStudentCardId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const debouncedQ = useDebouncedValue(q);
@@ -210,94 +218,92 @@ function StudentsPage() {
 
       {rows.length ? (
         <>
-        <Table head={canViewFinance
-          ? ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
-          : ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "الحالة", ""]}>
-          {pagination.rows.map((s) => {
-            const bal = balances.get(s.id) ?? { billed: 0, paid: 0, due: 0 };
-            const enrollmentLabels = academicLabels.get(s.id) ?? [];
+          <Table head={canViewFinance
+            ? ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "إجمالي المستحق", "المقبوض", "المتبقي", "الحالة", ""]
+            : ["الرمز", "الاسم", "المستوى", "العام الدراسي / الصف", "الحالة", ""]}>
+            {pagination.rows.map((s) => {
+              const bal = balances.get(s.id) ?? { billed: 0, paid: 0, due: 0 };
+              const enrollmentLabels = academicLabels.get(s.id) ?? [];
 
-            return (
-              <tr key={s.id} className={s.status === "archived" ? "opacity-70" : ""}>
-                <Td className="tabular-nums">{s.code}</Td>
-                <Td>
-                  <div className="flex min-w-[150px] flex-col items-start gap-2">
-                    <Link to="/students/$id" params={{ id: s.id }} className="font-semibold text-primary hover:underline">
-                      {s.full_name}
-                    </Link>
-                    <Link
-                      to="/students/$id"
-                      params={{ id: s.id }}
-                      className="inline-flex h-8 items-center justify-center rounded-lg bg-secondary px-3 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/70"
+              return (
+                <tr key={s.id} className={s.status === "archived" ? "opacity-70" : ""}>
+                  <Td className="tabular-nums">{s.code}</Td>
+                  <Td>
+                    <div className="flex min-w-[150px] flex-col items-start gap-2">
+                      <button type="button" onClick={() => setStudentCardId(s.id)} className="font-semibold text-primary hover:underline">
+                        {s.full_name}
+                      </button>
+                      <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => setStudentCardId(s.id)}>
+                        📋 فتح بطاقة الطالب
+                      </Button>
+                    </div>
+                  </Td>
+                  <Td>{s.education_level || "—"}</Td>
+                  <Td className="text-xs">{enrollmentLabels.length ? enrollmentLabels.join("، ") : "—"}</Td>
+                  {canViewFinance ? (
+                    <>
+                      <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
+                      <Td className="tabular-nums">{money(bal.paid, cur)}</Td>
+                      <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
+                    </>
+                  ) : null}
+                  <Td>
+                    <Badge
+                      tone={
+                        s.status === "active"
+                          ? "success"
+                          : s.status === "graduated"
+                            ? "primary"
+                            : "muted"
+                      }
                     >
-                      📋 فتح بطاقة الطالب
-                    </Link>
-                  </div>
-                </Td>
-                <Td>{s.education_level || "—"}</Td>
-                <Td className="text-xs">{enrollmentLabels.length ? enrollmentLabels.join("، ") : "—"}</Td>
-                {canViewFinance ? (
-                  <>
-                    <Td className="tabular-nums">{money(bal.billed, cur)}</Td>
-                    <Td className="tabular-nums">{money(bal.paid, cur)}</Td>
-                    <Td className={bal.due > 0 ? "tabular-nums text-destructive" : "tabular-nums"}>{money(bal.due, cur)}</Td>
-                  </>
-                ) : null}
-                <Td>
-                  <Badge
-                    tone={
-                      s.status === "active"
-                        ? "success"
+                      {s.status === "active"
+                        ? "نشط"
                         : s.status === "graduated"
-                          ? "primary"
-                          : "muted"
-                    }
-                  >
-                    {s.status === "active"
-                      ? "نشط"
-                      : s.status === "graduated"
-                        ? "متخرّج"
-                        : s.status === "archived"
-                          ? "مؤرشف"
-                          : "غير نشط"}
-                  </Badge>
-                </Td>
-                <Td>
-                  <div className="flex flex-wrap gap-1">
-                    {canEnroll && s.status === "active" ? (
-                      <Button variant="ghost" onClick={() => setEnrollStudentId(s.id)}>تسجيل</Button>
-                    ) : null}
-                    {canEdit ? (
-                      s.status === "archived" ? (
-                        <Button variant="secondary" onClick={() => setRestoreFor(s)}>استرجاع</Button>
-                      ) : (
-                        <>
-                          <Button variant="ghost" onClick={() => startEdit(s)}>تعديل</Button>
-                          <Button variant="ghost" onClick={() => { setArchiveFor(s); setError(null); }}>أرشفة</Button>
-                        </>
-                      )
-                    ) : null}
-                  </div>
-                </Td>
-              </tr>
-            );
-          })}
-        </Table>
-        <PaginationControls
-          page={pagination.page}
-          pageCount={pagination.pageCount}
-          pageSize={pagination.pageSize}
-          total={pagination.total}
-          from={pagination.from}
-          to={pagination.to}
-          onPrevious={pagination.previous}
-          onNext={pagination.next}
-          onPageSizeChange={pagination.setPageSize}
-        />
+                          ? "متخرّج"
+                          : s.status === "archived"
+                            ? "مؤرشف"
+                            : "غير نشط"}
+                    </Badge>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {canEnroll && s.status === "active" ? (
+                        <Button variant="ghost" onClick={() => setEnrollStudentId(s.id)}>تسجيل</Button>
+                      ) : null}
+                      {canEdit ? (
+                        s.status === "archived" ? (
+                          <Button variant="secondary" onClick={() => setRestoreFor(s)}>استرجاع</Button>
+                        ) : (
+                          <>
+                            <Button variant="ghost" onClick={() => startEdit(s)}>تعديل</Button>
+                            <Button variant="ghost" onClick={() => { setArchiveFor(s); setError(null); }}>أرشفة</Button>
+                          </>
+                        )
+                      ) : null}
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
+          </Table>
+          <PaginationControls
+            page={pagination.page}
+            pageCount={pagination.pageCount}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            from={pagination.from}
+            to={pagination.to}
+            onPrevious={pagination.previous}
+            onNext={pagination.next}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </>
       ) : (
         <Empty text={status === "archived" ? "لا يوجد طلاب في الأرشيف." : "لا يوجد طلاب مطابقون."} />
       )}
+
+      <StudentCardModal studentId={studentCardId} open={!!studentCardId} onClose={() => setStudentCardId(null)} />
 
       <Modal open={open} title={editing ? "تعديل طالب" : "طالب جديد"} onClose={() => setOpen(false)} wide>
         <div className="grid gap-3 sm:grid-cols-2">

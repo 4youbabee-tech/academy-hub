@@ -17,8 +17,9 @@ import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
 
-import { AcademyDatabase } from "./database.mjs";
+import { AcademyDatabase, ACADEMY_COLLECTIONS } from "./database.mjs";
 import { LicenseManager } from "./licensing.mjs";
+import { ProtectedBackupService } from "./protected-backup.mjs";
 import { UpdateService } from "./update-service.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +30,7 @@ let mainWindow = null;
 let webServer = null;
 let allowedOrigin = null;
 let database = null;
+let protectedBackup = null;
 let licenseManager = null;
 let updateService = null;
 let restoring = false;
@@ -46,6 +48,23 @@ function log(message, error) {
       appendFileSync(logFile, line, "utf8");
     } catch {
       // Logging must never prevent the application from starting.
+    }
+  }
+}
+
+function validateSnapshotPayload(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new Error("صيغة قاعدة البيانات غير صالحة.");
+  }
+  if (!Number.isInteger(snapshot.schema_version) || snapshot.schema_version < 1 || snapshot.schema_version > 4) {
+    throw new Error("إصدار قاعدة البيانات غير صالح.");
+  }
+  if (!snapshot.settings || typeof snapshot.settings !== "object" || Array.isArray(snapshot.settings)) {
+    throw new Error("إعدادات قاعدة البيانات غير صالحة.");
+  }
+  for (const collection of ACADEMY_COLLECTIONS) {
+    if (!Array.isArray(snapshot[collection])) {
+      throw new Error(`مجموعة قاعدة البيانات غير صالحة: ${collection}`);
     }
   }
 }
@@ -111,7 +130,7 @@ function stopWebServer() {
 
 function assertTrustedSender(event) {
   const senderUrl = event.senderFrame?.url ?? "";
-  if (!allowedOrigin || !senderUrl.startsWith(`${allowedOrigin}/`) && senderUrl !== allowedOrigin) {
+  if (!allowedOrigin || (!senderUrl.startsWith(`${allowedOrigin}/`) && senderUrl !== allowedOrigin)) {
     throw new Error("Untrusted IPC sender.");
   }
 }
@@ -126,6 +145,13 @@ function handle(channel, callback) {
 function requireDatabaseAccess() {
   if (restoring) throw new Error("تجري استعادة قاعدة البيانات الآن.");
   licenseManager.assertValid();
+}
+
+function assertBackupPassphrase(payload) {
+  const passphrase = typeof payload?.passphrase === "string" ? payload.passphrase.normalize("NFKC") : "";
+  if (passphrase.length < 10) throw new Error("كلمة حماية النسخة الاحتياطية يجب أن تكون 10 أحرف على الأقل.");
+  if (Buffer.byteLength(passphrase, "utf8") > 1024) throw new Error("كلمة حماية النسخة الاحتياطية طويلة جدًا.");
+  return passphrase;
 }
 
 function clearCloseTimer() {
@@ -202,8 +228,6 @@ async function printHtmlDocument({ html, pageSize = "A5" } = {}) {
     printWindow.webContents.on("will-navigate", (event) => event.preventDefault());
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // Use a dedicated, tightly sandboxed window so the native Windows print
-    // dialog has a real owner without relying on renderer-created popups.
     printWindow.show();
     printWindow.focus();
 
@@ -262,6 +286,7 @@ function installIpcHandlers() {
   });
   handle("academy:database:save", (snapshot) => {
     requireDatabaseAccess();
+    validateSnapshotPayload(snapshot);
     const payloadSize = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
     if (payloadSize > 64 * 1024 * 1024) throw new Error("حجم قاعدة البيانات غير منطقي.");
     database.saveSnapshot(snapshot);
@@ -272,30 +297,32 @@ function installIpcHandlers() {
     return database.getPage(collection, request);
   });
 
-  handle("academy:backup:create", async () => {
+  handle("academy:backup:create", async (payload) => {
     requireDatabaseAccess();
+    const passphrase = assertBackupPassphrase(payload);
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: "حفظ نسخة احتياطية",
-      defaultPath: path.join(app.getPath("documents"), `Academy-Hub-Backup-${stamp}.sqlite`),
-      filters: [{ name: "Academy Hub SQLite Backup", extensions: ["sqlite"] }],
+      title: "حفظ نسخة احتياطية مشفرة",
+      defaultPath: path.join(app.getPath("documents"), `Academy-Hub-Backup-${stamp}.ahbackup`),
+      filters: [{ name: "Academy Hub Encrypted Backup", extensions: ["ahbackup"] }],
     });
     if (result.canceled || !result.filePath) return { cancelled: true };
-    await database.createBackup(result.filePath);
+    await protectedBackup.create(result.filePath, passphrase);
     return { cancelled: false, path: result.filePath };
   });
 
-  handle("academy:backup:restore", async () => {
+  handle("academy:backup:restore", async (payload) => {
     requireDatabaseAccess();
+    const passphrase = assertBackupPassphrase(payload);
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "استعادة نسخة احتياطية",
       properties: ["openFile"],
-      filters: [{ name: "Academy Hub SQLite Backup", extensions: ["sqlite", "db"] }],
+      filters: [{ name: "Academy Hub Backup", extensions: ["ahbackup", "sqlite", "db"] }],
     });
     if (result.canceled || !result.filePaths[0]) return { cancelled: true };
     restoring = true;
     try {
-      const safetyBackup = await database.restoreFrom(result.filePaths[0]);
+      const safetyBackup = await protectedBackup.restore(result.filePaths[0], passphrase);
       setTimeout(() => {
         app.relaunch();
         app.exit(0);
@@ -400,6 +427,7 @@ async function bootstrap() {
   const databasePath = path.join(userData, "data", "academy-hub.sqlite");
   const backupDirectory = path.join(userData, "backups");
   database = await AcademyDatabase.open({ databasePath, backupDirectory });
+  protectedBackup = new ProtectedBackupService({ database, backupDirectory });
   licenseManager = await LicenseManager.create({
     licensePath: path.join(userData, "license", "academy.license"),
     publicKeyPath: path.join(__dirname, "resources", "license-public.pem"),
@@ -480,6 +508,7 @@ app.on("before-quit", (event) => {
       log("Database close failed", error);
     }
     database = null;
+    protectedBackup = null;
   }
 });
 

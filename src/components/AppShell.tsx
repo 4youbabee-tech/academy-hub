@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useApp } from "@/lib/session";
 import { Badge, Button, Input, Modal, Panel, Table, Td } from "@/components/ui-kit";
 import { FirstRunOwnerSetup } from "@/components/FirstRunOwnerSetup";
@@ -97,32 +97,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     }).sort((a, b) => b.total - a.total || a.student.full_name.localeCompare(b.student.full_name, "ar"));
   }, [db, user?.role]);
 
-  useEffect(() => {
-    const openStudentCard = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) return;
-      const anchor = event.target.closest("a");
-      if (!anchor) return;
-      const href = anchor.getAttribute("href");
-      if (!href) return;
-      let url: URL;
-      try {
-        url = new URL(href, window.location.href);
-      } catch {
-        return;
-      }
-      if (url.origin !== window.location.origin) return;
-      const match = url.pathname.match(/^\/students\/([^/]+)\/?$/);
-      const rawStudentId = match?.[1];
-      if (!rawStudentId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setNotificationsOpen(false);
-      setStudentCardId(decodeURIComponent(rawStudentId));
-    };
-    document.addEventListener("click", openStudentCard, true);
-    return () => document.removeEventListener("click", openStudentCard, true);
-  }, []);
-
   if (!db) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">جارٍ تحميل قاعدة البيانات المحلية…</div>;
   if (db.users.length === 0) return <FirstRunOwnerSetup />;
   if (!user) return <LoginScreen />;
@@ -161,7 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <Modal open={notificationsOpen} title="تنبيهات المتأخرات" onClose={() => setNotificationsOpen(false)} extraWide>
-        {arrears.length ? <Table head={["الطالب", "إجمالي المتأخر", "التفصيل", ""]}>{arrears.map(({ student, total, overdue }) => <tr key={student.id}><Td className="font-semibold">{student.full_name}</Td><Td className="tabular-nums text-destructive">{money(total, db.settings.currency)}</Td><Td className="text-xs">{overdue.map((row) => { const [year, month] = row.period.split("-"); return `${Number(month)} / ${year}: ${money(row.due, db.settings.currency)}`; }).join("، ")}</Td><Td><Link to="/students/$id" params={{ id: student.id }} onClick={() => setNotificationsOpen(false)} className="font-semibold text-primary hover:underline">فتح البطاقة</Link></Td></tr>)}</Table> : <div className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">لا توجد متأخرات من أشهر سابقة.</div>}
+        {arrears.length ? <Table head={["الطالب", "إجمالي المتأخر", "التفصيل", ""]}>{arrears.map(({ student, total, overdue }) => <tr key={student.id}><Td className="font-semibold">{student.full_name}</Td><Td className="tabular-nums text-destructive">{money(total, db.settings.currency)}</Td><Td className="text-xs">{overdue.map((row) => { const [year, month] = row.period.split("-"); return `${Number(month)} / ${year}: ${money(row.due, db.settings.currency)}`; }).join("، ")}</Td><Td><Button variant="ghost" onClick={() => { setNotificationsOpen(false); setStudentCardId(student.id); }}>فتح البطاقة</Button></Td></tr>)}</Table> : <div className="rounded-xl border bg-muted/20 p-5 text-sm text-muted-foreground">لا توجد متأخرات من أشهر سابقة.</div>}
       </Modal>
       <StudentCardModal studentId={studentCardId} open={!!studentCardId} onClose={() => setStudentCardId(null)} />
       <Modal open={helpOpen} title="كيفية العمل على البرنامج" onClose={() => setHelpOpen(false)} extraWide><HelpGuide /></Modal>

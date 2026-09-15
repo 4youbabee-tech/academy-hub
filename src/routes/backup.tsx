@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState, type ChangeEvent } from "react";
 import { Denied } from "@/components/AppShell";
-import { Button, PageHeader, Panel } from "@/components/ui-kit";
+import { Button, Field, Input, PageHeader, Panel } from "@/components/ui-kit";
 import { audit, flushDb, replaceDb, transact } from "@/lib/db";
 import { useApp } from "@/lib/session";
 import type { DB } from "@/lib/types";
@@ -51,12 +51,21 @@ function safeFilePart(value: string): string {
     .replace(/^-|-$/g, "") || "academy-hub";
 }
 
+function validatePassphrase(passphrase: string): string | null {
+  if (passphrase.normalize("NFKC").length < 10) return "كلمة حماية النسخة يجب أن تكون 10 أحرف على الأقل.";
+  return null;
+}
+
 function BackupPage() {
   const { db, actor, allowed } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createPassphrase, setCreatePassphrase] = useState("");
+  const [createPassphraseConfirm, setCreatePassphraseConfirm] = useState("");
+  const [restorePassphrase, setRestorePassphrase] = useState("");
   const desktopApi = typeof window === "undefined" ? undefined : window.academyDesktop;
 
   if (!db) return null;
@@ -70,13 +79,18 @@ function BackupPage() {
     try {
       await flushDb();
       if (desktopApi) {
-        const result = await desktopApi.backup.create();
+        const passphraseError = validatePassphrase(createPassphrase);
+        if (passphraseError) throw new Error(passphraseError);
+        if (createPassphrase !== createPassphraseConfirm) throw new Error("تأكيد كلمة حماية النسخة غير مطابق.");
+        setCreating(true);
+        const result = await desktopApi.backup.create({ passphrase: createPassphrase });
+        setCreating(false);
         if (result.cancelled) return;
         transact((draft) =>
-          audit(draft, actor, "backup", null, "create", "إنشاء نسخة احتياطية SQLite لقاعدة البيانات"),
+          audit(draft, actor, "backup", null, "create", "إنشاء نسخة احتياطية مشفرة ومحمية بكلمة مرور"),
         );
         setError(null);
-        setMessage(`تم إنشاء النسخة الاحتياطية بنجاح${result.path ? `: ${result.path}` : "."}`);
+        setMessage(`تم إنشاء النسخة الاحتياطية المشفرة بنجاح${result.path ? `: ${result.path}` : "."}`);
         return;
       }
 
@@ -98,6 +112,7 @@ function BackupPage() {
       setError(null);
       setMessage("تم إنشاء النسخة الاحتياطية وتنزيلها على جهازك.");
     } catch (e) {
+      setCreating(false);
       setMessage(null);
       setError((e as Error).message || "تعذر إنشاء النسخة الاحتياطية.");
     }
@@ -105,6 +120,11 @@ function BackupPage() {
 
   async function restoreDesktopBackup() {
     if (!desktopApi) return;
+    const passphraseError = validatePassphrase(restorePassphrase);
+    if (passphraseError) {
+      setError(passphraseError);
+      return;
+    }
     if (!confirm("استعادة النسخة ستستبدل البيانات الحالية بالكامل ثم تعيد تشغيل البرنامج. هل تريد المتابعة؟")) {
       return;
     }
@@ -112,7 +132,7 @@ function BackupPage() {
     setMessage(null);
     setError(null);
     try {
-      const result = await desktopApi.backup.restore();
+      const result = await desktopApi.backup.restore({ passphrase: restorePassphrase });
       if (result.cancelled) {
         setRestoring(false);
         return;
@@ -177,12 +197,25 @@ function BackupPage() {
           <h2 className="text-lg font-bold">إنشاء نسخة احتياطية</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
             {desktopApi
-              ? "يتم حفظ نسخة SQLite كاملة تشمل الطلاب والتسجيلات والفواتير والإيصالات والموظفين والمستخدمين والإعدادات وسجل التدقيق."
+              ? "نسخة Windows تُحفظ بصيغة مشفرة وتشمل الطلاب والتسجيلات والفواتير والإيصالات والموظفين والمستخدمين والإعدادات وسجل التدقيق."
               : "يتم تنزيل ملف JSON يحتوي على الطلاب والأعوام الدراسية والتسجيلات والفواتير والإيصالات والمستخدمين والإعدادات وسجل التدقيق الحالي."}
           </p>
+          {desktopApi ? (
+            <div className="mt-4 space-y-3">
+              <Field label="كلمة حماية النسخة">
+                <Input type="password" autoComplete="new-password" value={createPassphrase} onChange={(event) => setCreatePassphrase(event.target.value)} placeholder="10 أحرف على الأقل" />
+              </Field>
+              <Field label="تأكيد كلمة الحماية">
+                <Input type="password" autoComplete="new-password" value={createPassphraseConfirm} onChange={(event) => setCreatePassphraseConfirm(event.target.value)} />
+              </Field>
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs leading-6">
+                ⚠️ احتفظ بكلمة الحماية في مكان آمن. النسخة المشفرة لا يمكن استعادتها بدونها، ويمكن نقلها إلى جهاز جديد واستعادتها بنفس الكلمة.
+              </div>
+            </div>
+          ) : null}
           <div className="mt-5">
-            <Button onClick={exportBackup} disabled={!canExport}>
-              تنزيل نسخة احتياطية
+            <Button onClick={exportBackup} disabled={!canExport || creating}>
+              {creating ? "جارٍ إنشاء النسخة..." : "تنزيل نسخة احتياطية"}
             </Button>
           </div>
           {!canExport ? (
@@ -193,9 +226,17 @@ function BackupPage() {
         <Panel>
           <h2 className="text-lg font-bold">استعادة نسخة احتياطية</h2>
           <p className="mt-2 text-sm leading-7 text-muted-foreground">
-            اختر ملف نسخة احتياطية صادر من Academy Hub. الاستعادة تستبدل البيانات المحلية الحالية، ويُنشئ إصدار
-            Windows نسخة أمان تلقائية قبل الاستبدال.
+            {desktopApi
+              ? "اختر نسخة Academy Hub المشفرة وأدخل كلمة الحماية نفسها. يمكن كذلك استعادة نسخة SQLite قديمة، مع إنشاء نسخة أمان قبل الاستبدال."
+              : "اختر ملف نسخة احتياطية صادر من Academy Hub. الاستعادة تستبدل البيانات المحلية الحالية بالكامل."}
           </p>
+          {desktopApi ? (
+            <div className="mt-4">
+              <Field label="كلمة حماية النسخة">
+                <Input type="password" autoComplete="current-password" value={restorePassphrase} onChange={(event) => setRestorePassphrase(event.target.value)} placeholder="كلمة الحماية المستخدمة عند الإنشاء" />
+              </Field>
+            </div>
+          ) : null}
           <input
             ref={inputRef}
             type="file"
@@ -237,7 +278,7 @@ function BackupPage() {
         <h2 className="text-sm font-bold">مهم</h2>
         <p className="mt-2 text-sm leading-7 text-muted-foreground">
           {desktopApi
-            ? "نسخة Windows تحفظ البيانات في SQLite داخل مجلد بيانات المستخدم، وليس داخل مجلد التثبيت. التحديثات لا تمسح البيانات أو الترخيص، ويُنشئ البرنامج نسخة تلقائية يومية مع الاحتفاظ بآخر 30 نسخة."
+            ? "نسخة Windows تحفظ قاعدة العمل داخل مجلد بيانات المستخدم، وليس داخل مجلد التثبيت. النسخ اليدوية الجديدة محمية بكلمة مرور وقابلة للنقل بين الأجهزة. التحديثات لا تمسح البيانات أو الترخيص، ويستمر البرنامج بإنشاء نسخة أمان محلية تلقائية يومية."
             : "البيانات في نسخة الويب محفوظة داخل المتصفح عبر IndexedDB، لذلك النسخة الاحتياطية الخارجية مهمة قبل تغيير الجهاز أو مسح بيانات المتصفح."}
         </p>
       </Panel>
