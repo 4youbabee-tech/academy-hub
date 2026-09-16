@@ -66,6 +66,49 @@ export const DEFAULT_WORKER_PERMISSIONS = [
   "finance.pay",
 ] as const;
 
+const PERMISSION_PREREQUISITES: Record<string, readonly string[]> = {
+  "students.create": ["students.view"],
+  "students.update": ["students.view"],
+  "students.delete": ["students.view"],
+  "courses.create": ["courses.view"],
+  "courses.update": ["courses.view"],
+  "classes.create": ["classes.view"],
+  "classes.update": ["classes.view"],
+  "enrollments.create": ["enrollments.view", "students.view", "classes.view"],
+  "enrollments.update": ["enrollments.view", "students.view", "classes.view"],
+  "finance.pay": ["finance.view"],
+  "finance.update": ["finance.view"],
+  "payroll.pay": ["payroll.view"],
+  "payroll.update": ["payroll.view"],
+  "expenses.create": ["expenses.view"],
+  "expenses.update": ["expenses.view"],
+  "settings.update": ["settings.view"],
+  "backup.create": ["backup.view"],
+  "backup.restore": ["backup.view"],
+  "users.create": ["users.view"],
+  "users.update": ["users.view"],
+  "users.delete": ["users.view"],
+  "system.reset": ["settings.view"],
+};
+
+export function normalizeUserPermissions(input: readonly string[]): string[] {
+  const allowedKeys = new Set(PERMISSION_OPTIONS.map((item) => item.key));
+  const result = new Set(input.filter((key) => allowedKeys.has(key)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const key of [...result]) {
+      for (const prerequisite of PERMISSION_PREREQUISITES[key] ?? []) {
+        if (!result.has(prerequisite)) {
+          result.add(prerequisite);
+          changed = true;
+        }
+      }
+    }
+  }
+  return PERMISSION_OPTIONS.map((item) => item.key).filter((key) => result.has(key));
+}
+
 // Legacy role defaults are kept so existing installations continue to work.
 const ALL = "*";
 const MATRIX: Record<RoleKey, string[]> = {
