@@ -4,7 +4,7 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td } from "@/components/ui-kit";
 import { insert, update, remove, hashPassword } from "@/lib/db";
-import { canUser, DEFAULT_WORKER_PERMISSIONS, PERMISSION_OPTIONS, ROLE_LABELS } from "@/lib/permissions";
+import { canUser, DEFAULT_WORKER_PERMISSIONS, normalizeUserPermissions, PERMISSION_OPTIONS } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 import { usePagination } from "@/hooks/use-pagination";
 
@@ -23,15 +23,15 @@ const EMPTY = {
   full_name: "",
   password: "",
   is_active: true,
-  permissions: [...DEFAULT_WORKER_PERMISSIONS] as string[],
+  permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS),
 };
 
 const PERMISSION_GROUPS = [...new Set(PERMISSION_OPTIONS.map((item) => item.group))];
 
 function effectivePermissions(user: User): string[] {
   if (user.role === "owner") return PERMISSION_OPTIONS.map((item) => item.key);
-  if (Array.isArray(user.permissions)) return [...user.permissions];
-  return PERMISSION_OPTIONS.filter((item) => canUser(user, item.key)).map((item) => item.key);
+  if (Array.isArray(user.permissions)) return normalizeUserPermissions(user.permissions);
+  return normalizeUserPermissions(PERMISSION_OPTIONS.filter((item) => canUser(user, item.key)).map((item) => item.key));
 }
 
 function UsersPage() {
@@ -63,7 +63,7 @@ function UsersPage() {
 
   function startAdd() {
     setEditing(null);
-    setForm({ ...EMPTY, permissions: [...DEFAULT_WORKER_PERMISSIONS] });
+    setForm({ ...EMPTY, permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS) });
     setError(null);
     setOpen(true);
   }
@@ -82,12 +82,12 @@ function UsersPage() {
   }
 
   function togglePermission(key: string) {
-    setForm((current) => ({
-      ...current,
-      permissions: current.permissions.includes(key)
+    setForm((current) => {
+      const next = current.permissions.includes(key)
         ? current.permissions.filter((item) => item !== key)
-        : [...current.permissions, key],
-    }));
+        : [...current.permissions, key];
+      return { ...current, permissions: normalizeUserPermissions(next) };
+    });
   }
 
   async function save() {
@@ -100,6 +100,7 @@ function UsersPage() {
     );
     if (existing) return setError("اسم المستخدم موجود مسبقاً");
 
+    const normalizedPermissions = normalizeUserPermissions(form.permissions);
     try {
       if (editing) {
         const patch: Partial<User> = {
@@ -109,7 +110,7 @@ function UsersPage() {
         };
         if (editing.role !== "owner") {
           patch.role = "worker";
-          patch.permissions = [...new Set(form.permissions)];
+          patch.permissions = normalizedPermissions;
         }
         if (form.password.trim()) patch.password_hash = await hashPassword(form.password.trim());
         update("users", editing.id, patch, actor, `تعديل المستخدم وصلاحياته ${form.full_name}`);
@@ -125,7 +126,7 @@ function UsersPage() {
             role: "worker",
             is_active: form.is_active,
             employee_id: null,
-            permissions: [...new Set(form.permissions)],
+            permissions: normalizedPermissions,
           },
           actor,
           `إضافة العامل ${form.full_name}`,
@@ -243,11 +244,11 @@ function UsersPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="font-bold">صلاحيات العامل</h3>
-                  <p className="text-xs text-muted-foreground">أي صلاحية غير معلّمة لن تظهر شاشتها أو أزرارها للعامل.</p>
+                  <p className="text-xs text-muted-foreground">أي صلاحية غير معلّمة لن تظهر شاشتها أو أزرارها للعامل. صلاحيات التنفيذ تضيف تلقائيًا صلاحية مشاهدة الشاشة اللازمة.</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: [...DEFAULT_WORKER_PERMISSIONS] })}>الافتراضي</Button>
-                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: PERMISSION_OPTIONS.map((item) => item.key) })}>تحديد الكل</Button>
+                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS) })}>الافتراضي</Button>
+                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: normalizeUserPermissions(PERMISSION_OPTIONS.map((item) => item.key)) })}>تحديد الكل</Button>
                   <Button variant="ghost" onClick={() => setForm({ ...form, permissions: [] })}>إلغاء الكل</Button>
                 </div>
               </div>
