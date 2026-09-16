@@ -31,7 +31,6 @@ function ReceiptsPage() {
   const [payFor, setPayFor] = useState<string | null>(null);
   const [method, setMethod] = useState<Payment["method"]>("cash");
   const [note, setNote] = useState("");
-  const [quickAmount, setQuickAmount] = useState("");
   const [selectedInstallments, setSelectedInstallments] = useState<Record<string, boolean>>({});
   const [allocationAmounts, setAllocationAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +160,6 @@ function ReceiptsPage() {
     setPayFor(invoiceId);
     setMethod("cash");
     setNote("");
-    setQuickAmount("");
     setSelectedInstallments({});
     setAllocationAmounts({});
     setError(null);
@@ -170,34 +168,6 @@ function ReceiptsPage() {
   function setAllocation(installmentId: string, selected: boolean, defaultAmount = "") {
     setSelectedInstallments((current) => ({ ...current, [installmentId]: selected }));
     setAllocationAmounts((current) => ({ ...current, [installmentId]: selected ? (current[installmentId] || defaultAmount) : "" }));
-  }
-
-  function distributeOldestFirst() {
-    if (!currentInvoice) return;
-    let amount: number;
-    try {
-      amount = toMinor(quickAmount);
-    } catch {
-      setError("أدخل مبلغًا صحيحًا للتوزيع التلقائي");
-      return;
-    }
-    if (amount <= 0) return setError("أدخل مبلغًا أكبر من صفر");
-    if (amount > invoiceRemaining) return setError("المبلغ يتجاوز الرصيد المتبقي على الفاتورة");
-
-    const selected: Record<string, boolean> = {};
-    const allocations: Record<string, string> = {};
-    let remainingPool = amount;
-    for (const row of payableInstallments) {
-      if (remainingPool <= 0) break;
-      const take = Math.min(remainingPool, row.remaining);
-      if (take > 0) {
-        selected[row.installment.id] = true;
-        allocations[row.installment.id] = (take / 100).toFixed(2);
-        remainingPool -= take;
-      }
-    }
-    setSelectedInstallments(selected);
-    setAllocationAmounts(allocations);
     setError(null);
   }
 
@@ -217,7 +187,6 @@ function ReceiptsPage() {
       );
       setPrintAfterPaymentId(result.payment_ids[0] ?? null);
       setPayFor(null);
-      setQuickAmount("");
       setSelectedInstallments({});
       setAllocationAmounts({});
       setMethod("cash");
@@ -390,13 +359,10 @@ function ReceiptsPage() {
           ) : null}
 
           <div className="rounded-xl border p-3">
-            <div className="mb-3 flex flex-wrap items-end gap-2">
-              <Field label="مبلغ سريع للتوزيع بالأقدم أولًا" className="min-w-[220px] flex-1">
-                <Input type="number" step="0.01" value={quickAmount} onChange={(event) => setQuickAmount(event.target.value)} placeholder="مثال: 150" />
-              </Field>
-              <Button variant="secondary" onClick={distributeOldestFirst}>توزيع بالأقدم أولًا</Button>
-            </div>
-            <p className="mb-3 text-xs text-muted-foreground">يمكنك بعد التوزيع التلقائي تعديل أي شهر يدويًا أو إلغاء اختياره.</p>
+            <p className="mb-1 text-sm font-bold">اختر الشهر وحدد مبلغ القبض</p>
+            <p className="mb-3 text-xs leading-6 text-muted-foreground">
+              عند تحديد الشهر يُكتب كامل المتبقي تلقائيًا، ويمكنك تعديل المبلغ في نفس السطر إذا كانت الدفعة جزئية.
+            </p>
             <div className="space-y-2">
               {payableInstallments.map(({ installment, paid, remaining }) => {
                 const selected = Boolean(selectedInstallments[installment.id]);
@@ -407,7 +373,7 @@ function ReceiptsPage() {
                       checked={selected}
                       onChange={(event) => setAllocation(installment.id, event.target.checked, (remaining / 100).toFixed(2))}
                       aria-label={`اختيار ${installmentLabel(installment)}`}
-                      className="h-4 w-4"
+                      className="h-5 w-5"
                     />
                     <div className="text-sm">
                       <p className="font-semibold">{installmentLabel(installment)}</p>
@@ -416,10 +382,15 @@ function ReceiptsPage() {
                     <Input
                       type="number"
                       step="0.01"
+                      min="0"
                       disabled={!selected}
                       value={allocationAmounts[installment.id] || ""}
-                      onChange={(event) => setAllocationAmounts((current) => ({ ...current, [installment.id]: event.target.value }))}
+                      onChange={(event) => {
+                        setAllocationAmounts((current) => ({ ...current, [installment.id]: event.target.value }));
+                        setError(null);
+                      }}
                       placeholder="المبلغ"
+                      aria-label={`مبلغ ${installmentLabel(installment)}`}
                     />
                   </div>
                 );
