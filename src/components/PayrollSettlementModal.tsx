@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Field, Input, Modal, Select } from "@/components/ui-kit";
+import { Button, Field, Input, Modal } from "@/components/ui-kit";
 import { useApp } from "@/lib/session";
 import { money, numericMonthPeriodLabel, toMinor } from "@/lib/format";
 import { employeePayrollBalanceRows, recordPayrollAllocatedSettlement } from "@/lib/payroll-settlement";
@@ -15,8 +15,7 @@ interface Props {
 export function PayrollSettlementModal({ employeeId, open, onClose, throughPeriod = null }: Props) {
   const { db, actor } = useApp();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [manualItemId, setManualItemId] = useState("");
-  const [manualAmount, setManualAmount] = useState("");
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastPaymentId, setLastPaymentId] = useState<string | null>(null);
@@ -33,18 +32,14 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
   const employee = employeeId ? currentDb.employees.find((row) => row.id === employeeId) : undefined;
   const currency = currentDb.settings.currency;
   const totalDue = rows.reduce((sum, row) => sum + row.remaining, 0);
-  const checkedTotal = rows.reduce(
-    (sum, row) => sum + (selected[row.payroll_item.id] ? row.remaining : 0),
-    0,
-  );
-  const manualRow = rows.find((row) => row.payroll_item.id === manualItemId && !selected[row.payroll_item.id]);
-  let manualMinor = 0;
-  try {
-    manualMinor = manualAmount.trim() ? toMinor(manualAmount) : 0;
-  } catch {
-    manualMinor = 0;
-  }
-  const selectedTotal = checkedTotal + Math.max(0, manualMinor);
+  const selectedTotal = rows.reduce((sum, row) => {
+    if (!selected[row.payroll_item.id]) return sum;
+    try {
+      return sum + toMinor(amounts[row.payroll_item.id] || "0");
+    } catch {
+      return sum;
+    }
+  }, 0);
   const lastPayment = lastPaymentId
     ? currentDb.payroll_payments.find((payment) => payment.id === lastPaymentId)
     : undefined;
@@ -54,8 +49,7 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
 
   function reset() {
     setSelected({});
-    setManualItemId("");
-    setManualAmount("");
+    setAmounts({});
     setNote("");
     setError(null);
   }
@@ -66,12 +60,12 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
     onClose();
   }
 
-  function toggle(itemId: string, checked: boolean) {
+  function toggle(itemId: string, checked: boolean, remaining: number) {
     setSelected((current) => ({ ...current, [itemId]: checked }));
-    if (checked && manualItemId === itemId) {
-      setManualItemId("");
-      setManualAmount("");
-    }
+    setAmounts((current) => ({
+      ...current,
+      [itemId]: checked ? (current[itemId] || (remaining / 100).toFixed(2)) : "",
+    }));
     setError(null);
   }
 
@@ -80,16 +74,11 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
     try {
       const allocations = rows
         .filter((row) => selected[row.payroll_item.id])
-        .map((row) => ({ payroll_item_id: row.payroll_item.id, amount: row.remaining }));
-
-      if (manualAmount.trim()) {
-        if (!manualRow) throw new Error("اختر شهر الراتب للدفعة الجزئية اليدوية");
-        const amount = toMinor(manualAmount);
-        if (amount <= 0) throw new Error("المبلغ اليدوي يجب أن يكون أكبر من صفر");
-        if (amount > manualRow.remaining) throw new Error("المبلغ اليدوي يتجاوز المتبقي في شهر الراتب المحدد");
-        allocations.push({ payroll_item_id: manualRow.payroll_item.id, amount });
-      }
-
+        .map((row) => ({
+          payroll_item_id: row.payroll_item.id,
+          amount: toMinor(amounts[row.payroll_item.id] || "0"),
+        }))
+        .filter((row) => row.amount > 0);
       const result = recordPayrollAllocatedSettlement({ employee_id: employeeId, allocations, note: note.trim() }, actor);
       setLastPaymentId(result.payment_ids[0] ?? null);
       reset();
@@ -117,9 +106,9 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
           </div>
 
           <div className="rounded-xl border p-3">
-            <p className="mb-1 text-sm font-bold">اختر الأشهر التي تريد دفعها كاملة</p>
+            <p className="mb-1 text-sm font-bold">اختر شهر الراتب وحدد مبلغ الدفع</p>
             <p className="mb-3 text-xs leading-6 text-muted-foreground">
-              وضع علامة على الشهر يعني دفع كامل المبلغ المتبقي لذلك الشهر. إذا أردت دفعة جزئية استخدم الخانة اليدوية الواحدة الموجودة أسفل الأشهر.
+              عند تحديد الشهر يُكتب كامل المتبقي تلقائيًا، ويمكنك تعديل المبلغ في نفس السطر إذا أردت دفعة جزئية.
             </p>
             <div className="space-y-2">
               {rows.map((row) => {
@@ -127,61 +116,41 @@ export function PayrollSettlementModal({ employeeId, open, onClose, throughPerio
                 const checked = Boolean(selected[item.id]);
                 const isRemainder = row.paid > 0;
                 return (
-                  <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/20">
+                  <div key={item.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[auto_1fr_150px] sm:items-center">
                     <input
                       type="checkbox"
-                      className="mt-1 h-5 w-5 shrink-0"
+                      className="h-5 w-5"
                       checked={checked}
-                      onChange={(event) => toggle(item.id, event.target.checked)}
+                      onChange={(event) => toggle(item.id, event.target.checked, row.remaining)}
                       aria-label={`اختيار راتب ${numericMonthPeriodLabel(item.period)}`}
                     />
-                    <div className="min-w-0 flex-1 text-sm">
+                    <div className="text-sm">
                       <p className="font-semibold">
                         {isRemainder ? "متبقي من راتب شهر" : "راتب شهر"} {numericMonthPeriodLabel(item.period)}
                       </p>
                       <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                        المتبقي {money(row.remaining, currency)}
-                        {row.paid > 0 ? ` — المدفوع سابقًا ${money(row.paid, currency)} من أصل ${money(item.net, currency)}` : ""}
+                        المستحق {money(item.net, currency)} — المدفوع {money(row.paid, currency)} — المتبقي {money(row.remaining, currency)}
                       </p>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold text-muted-foreground">دفع كامل المتبقي</span>
-                  </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      disabled={!checked}
+                      value={amounts[item.id] || ""}
+                      onChange={(event) => {
+                        setAmounts((current) => ({ ...current, [item.id]: event.target.value }));
+                        setError(null);
+                      }}
+                      placeholder="المبلغ"
+                      aria-label={`مبلغ دفع راتب ${numericMonthPeriodLabel(item.period)}`}
+                    />
+                  </div>
                 );
               })}
               {!rows.length ? <p className="py-4 text-center text-sm text-muted-foreground">لا توجد مستحقات رواتب غير مدفوعة.</p> : null}
             </div>
           </div>
-
-          {rows.length ? (
-            <div className="rounded-xl border border-dashed p-3">
-              <p className="mb-3 text-sm font-bold">دفعة جزئية يدوية <span className="font-normal text-muted-foreground">(اختياري)</span></p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="شهر الراتب">
-                  <Select value={manualItemId} onChange={(event) => { setManualItemId(event.target.value); setError(null); }}>
-                    <option value="">اختر الشهر</option>
-                    {rows.filter((row) => !selected[row.payroll_item.id]).map((row) => (
-                      <option key={row.payroll_item.id} value={row.payroll_item.id}>
-                        {row.paid > 0 ? "متبقي" : "راتب"} {numericMonthPeriodLabel(row.payroll_item.period)} — {money(row.remaining, currency)}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="المبلغ اليدوي">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={manualAmount}
-                    onChange={(event) => { setManualAmount(event.target.value); setError(null); }}
-                    placeholder="مثال: 100"
-                  />
-                </Field>
-              </div>
-              <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                استخدمها فقط إذا كنت لا تريد دفع كامل المتبقي في ذلك الشهر. لا يمكن أن يتجاوز المبلغ المتبقي للشهر المحدد.
-              </p>
-            </div>
-          ) : null}
 
           <div className="rounded-xl bg-muted/30 p-3 text-sm">
             <b>إجمالي الدفعة:</b> {money(selectedTotal, currency)}
