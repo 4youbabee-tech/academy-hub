@@ -3,6 +3,8 @@ name: Build Academy Hub Windows Installer
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "build/v1.1.1-final-test"
     tags:
       - "v*"
 
