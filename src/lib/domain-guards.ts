@@ -7,7 +7,7 @@ function actorUser(db: DB, actor: Actor): User | undefined {
 
 function requireOwner(db: DB, actor: Actor): void {
   if (actorUser(db, actor)?.role !== "owner") {
-    throw new Error("إدارة المستخدمين والصلاحيات متاحة للمدير الرئيسي فقط");
+    throw new Error("إدارة المستخدمين والصلاحيات متاحة للمالك فقط (المدير الرئيسي)");
   }
 }
 
@@ -53,10 +53,10 @@ export function assertUserUpdate(db: DB, target: User, patch: Partial<User>, act
   const activeOwners = owners.filter((user) => user.is_active);
 
   if (target.role === "owner" && nextRole !== "owner" && owners.length <= 1) {
-    throw new Error("لا يمكن تغيير دور المدير الرئيسي الوحيد في النظام");
+    throw new Error("لا يمكن تغيير دور آخر مالك في النظام (المدير الرئيسي)");
   }
   if (target.role === "owner" && target.is_active && !nextActive && activeOwners.length <= 1) {
-    throw new Error("لا يمكن تعطيل المدير الرئيسي الوحيد في النظام");
+    throw new Error("لا يمكن تعطيل آخر مالك نشط في النظام (المدير الرئيسي)");
   }
 }
 
@@ -64,13 +64,13 @@ export function assertUserDelete(db: DB, target: User, actor: Actor): void {
   requireOwner(db, actor);
   if (target.role !== "owner") return;
   if (db.users.filter((user) => user.role === "owner").length <= 1) {
-    throw new Error("لا يمكن حذف المدير الرئيسي الوحيد في النظام");
+    throw new Error("لا يمكن حذف آخر مالك في النظام (المدير الرئيسي)");
   }
 }
 
 export function assertActiveOwnerExists(db: DB): void {
   if (!db.users.some((user) => user.role === "owner" && user.is_active)) {
-    throw new Error("النسخة الاحتياطية لا تحتوي على حساب مدير رئيسي نشط");
+    throw new Error("النسخة الاحتياطية لا تحتوي على حساب مالك نشط (المدير الرئيسي)");
   }
   const usernames = db.users.map((user) => user.username.trim().toLowerCase());
   if (new Set(usernames).size !== usernames.length) {
