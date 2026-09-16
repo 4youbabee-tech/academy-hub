@@ -1,38 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
   <title id="title">دفع راتب الموظف بالشهور</title>
-  <desc id="desc">اختيار الأشهر بعلامة صح لدفع كامل المتبقي مع خانة يدوية واحدة للدفعة الجزئية</desc>
+  <desc id="desc">كل شهر يظهر مع مربع اختيار ومبلغ قابل للتعديل في السطر نفسه</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#173f47" flood-opacity=".13"/></filter>
     <style>text{font-family:"Segoe UI",Tahoma,Arial,sans-serif}text:not([fill]){fill:#263c42}.small{font-size:14px;fill:#6b7d80}.head{font-size:18px;font-weight:800}</style>
   </defs>
   <rect width="900" height="430" rx="24" fill="#f7f8f4"/>
   <text x="450" y="46" text-anchor="middle" font-size="25" font-weight="800">دفع مستحقات الموظف بدون لخبطة</text>
-  <text x="450" y="75" text-anchor="middle" class="small">✓ للشهر الكامل — خانة واحدة فقط للدفعة الجزئية</text>
+  <text x="450" y="75" text-anchor="middle" class="small">✓ اختر الشهر، ثم عدّل مبلغ نفس السطر إذا كانت الدفعة جزئية</text>
 
   <g filter="url(#shadow)">
-    <rect x="72" y="105" width="756" height="244" rx="20" fill="white" stroke="#d9e4e1"/>
+    <rect x="72" y="105" width="756" height="235" rx="20" fill="white" stroke="#d9e4e1"/>
 
-    <rect x="105" y="135" width="690" height="62" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
-    <rect x="742" y="153" width="24" height="24" rx="5" fill="#48966b"/>
-    <path d="M748 165l5 5 9-11" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="710" y="160" text-anchor="end" class="head">متبقي من راتب شهر 8 / 2026</text>
-    <text x="710" y="183" text-anchor="end" class="small">المتبقي 50 USD — المدفوع سابقًا 350 من أصل 400</text>
-    <text x="125" y="171" font-size="15" font-weight="800" fill="#397b57">دفع كامل المتبقي</text>
+    <rect x="105" y="140" width="690" height="72" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
+    <rect x="742" y="164" width="24" height="24" rx="5" fill="#48966b"/>
+    <path d="M748 176l5 5 9-11" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="710" y="164" text-anchor="end" class="head">متبقي من راتب شهر 8 / 2026</text>
+    <text x="710" y="190" text-anchor="end" class="small">المتبقي 50 USD</text>
+    <rect x="135" y="158" width="150" height="36" rx="8" fill="white" stroke="#d9e4e1"/>
+    <text x="210" y="181" text-anchor="middle" font-size="14" font-weight="800">50</text>
 
-    <rect x="105" y="208" width="690" height="62" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
-    <rect x="742" y="226" width="24" height="24" rx="5" fill="white" stroke="#91a3a6" stroke-width="2"/>
-    <text x="710" y="233" text-anchor="end" class="head">راتب شهر 9 / 2026</text>
-    <text x="710" y="256" text-anchor="end" class="small">المتبقي 400 USD</text>
-    <text x="125" y="244" font-size="15" font-weight="700" fill="#6b7d80">اختياري</text>
-
-    <rect x="105" y="286" width="690" height="46" rx="12" fill="#fffaf0" stroke="#e9cf95"/>
-    <text x="710" y="315" text-anchor="end" font-size="15" font-weight="800">دفعة جزئية يدوية</text>
-    <rect x="430" y="296" width="180" height="27" rx="7" fill="white" stroke="#d9c28e"/>
-    <text x="520" y="315" text-anchor="middle" class="small">اختر الشهر</text>
-    <rect x="220" y="296" width="180" height="27" rx="7" fill="white" stroke="#d9c28e"/>
-    <text x="310" y="315" text-anchor="middle" class="small">المبلغ</text>
+    <rect x="105" y="230" width="690" height="72" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
+    <rect x="742" y="254" width="24" height="24" rx="5" fill="white" stroke="#91a3a6" stroke-width="2"/>
+    <text x="710" y="254" text-anchor="end" class="head">راتب شهر 9 / 2026</text>
+    <text x="710" y="280" text-anchor="end" class="small">المتبقي 400 USD</text>
+    <rect x="135" y="248" width="150" height="36" rx="8" fill="white" stroke="#d9e4e1"/>
+    <text x="210" y="271" text-anchor="middle" class="small">المبلغ</text>
   </g>
 
-  <rect x="172" y="375" width="556" height="34" rx="9" fill="#e9f4f3"/>
-  <text x="450" y="397" text-anchor="middle" font-size="14" font-weight="700">لا يوجد «توزيع بالأقدم أولًا» ولا مبلغ منفصل داخل كل شهر</text>
+  <rect x="160" y="370" width="580" height="34" rx="9" fill="#e9f4f3"/>
+  <text x="450" y="392" text-anchor="middle" font-size="14" font-weight="700">الـ Checkbox والمبلغ اليدوي موجودان معًا في نفس سطر الشهر</text>
 </svg>
