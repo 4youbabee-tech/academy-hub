@@ -51,9 +51,11 @@ export interface User extends Base {
   role: RoleKey;
   is_active: boolean;
   employee_id?: ID | null;
+  /** Explicit permissions for non-owner users. Undefined keeps legacy role defaults during migration. */
+  permissions?: PermissionKey[];
 }
 
-export type RoleKey = "owner" | "director" | "accountant" | "secretary" | "teacher";
+export type RoleKey = "owner" | "worker" | "director" | "accountant" | "secretary" | "teacher";
 
 export interface Student extends Base {
   code: string;
@@ -228,7 +230,7 @@ export interface Income extends Base {
   is_void: boolean;
 }
 
-export interface AuditEntry extends Base {
+export interface AuditLog extends Base {
   user_id: ID | null;
   user_name: string;
   entity: string;
@@ -256,9 +258,7 @@ export interface DB {
   advances: Advance[];
   expenses: Expense[];
   incomes: Income[];
-  audit_log: AuditEntry[];
+  audit_log: AuditLog[];
 }
 
-export type CollectionKey = {
-  [K in keyof DB]: DB[K] extends Base[] ? K : never;
-}[keyof DB];
+export type CollectionKey = Exclude<keyof DB, "schema_version" | "settings" | "expense_categories">;
