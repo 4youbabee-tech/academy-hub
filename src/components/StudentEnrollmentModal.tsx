@@ -17,7 +17,6 @@ type EnrollmentForm = {
   class_id: string;
   price: string;
   discount: string;
-  registration_fee: string;
   discount_preset_id: string;
   reason: string;
   start_period: string;
@@ -28,7 +27,6 @@ const EMPTY: EnrollmentForm = {
   class_id: "",
   price: "0",
   discount: "0",
-  registration_fee: "0",
   discount_preset_id: "",
   reason: "",
   start_period: localMonthKey(),
@@ -103,7 +101,6 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
           discount: toMinor(form.discount),
           discount_preset_id: preset?.id ?? null,
           discount_title: preset?.title ?? form.reason.trim(),
-          registration_fee: toMinor(form.registration_fee),
           start_period: form.start_period,
         },
         actor,
@@ -193,16 +190,6 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
 
           <MonthYearPicker period={form.start_period} onChange={(start_period) => setForm({ ...form, start_period })} />
 
-          <Field label={`رسوم تسجيل لمرة واحدة (${cur})`}>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.registration_fee}
-              onChange={(e) => setForm({ ...form, registration_fee: e.target.value })}
-            />
-          </Field>
-
           {!form.discount_preset_id ? (
             <Field label="عنوان الخصم اليدوي / ملاحظة">
               <Input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
@@ -213,7 +200,7 @@ export function StudentEnrollmentModal({ open, studentId, onClose, onSuccess }: 
         <div className="rounded-xl bg-muted p-3 text-sm">
           <p>القسط الشهري بعد الخصم: <b>{money(netMonthly, cur)}</b></p>
           <p className="mt-1 text-xs text-muted-foreground">
-            يبدأ التوليد المالي من الشهر المحدد. الأشهر المستقبلية لا تصبح دينًا فعليًا إلا عند دخولها وتوليد استحقاقها.
+            هذا هو المبلغ المطلوب من الطالب كل شهر. يبدأ التوليد المالي من الشهر المحدد، والأشهر المستقبلية لا تصبح دينًا فعليًا إلا عند دخولها وتوليد استحقاقها.
           </p>
         </div>
 
