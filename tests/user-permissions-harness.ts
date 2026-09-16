@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { baseFields } from "../src/lib/db";
-import { canUser, DEFAULT_WORKER_PERMISSIONS } from "../src/lib/permissions";
+import { canUser, DEFAULT_WORKER_PERMISSIONS, normalizeUserPermissions } from "../src/lib/permissions";
 import type { User } from "../src/lib/types";
 
 const owner: User = {
@@ -19,13 +19,13 @@ const worker: User = {
   password_hash: "hash",
   role: "worker",
   is_active: true,
-  permissions: [...DEFAULT_WORKER_PERMISSIONS],
+  permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS),
 };
 const customWorker: User = {
   ...worker,
   id: `${worker.id}-custom`,
   username: "custom.worker",
-  permissions: ["students.view", "reports.view", "system.reset"],
+  permissions: normalizeUserPermissions(["students.view", "reports.view", "system.reset"]),
 };
 
 assert.equal(canUser(owner, "system.reset"), true, "main manager must always have every permission");
@@ -37,6 +37,9 @@ assert.equal(canUser(worker, "system.reset"), false, "default worker must not re
 assert.equal(canUser(worker, "users.update"), false, "default worker must not manage users");
 assert.equal(canUser(customWorker, "reports.view"), true, "explicit report permission must be honored");
 assert.equal(canUser(customWorker, "system.reset"), true, "explicit reset permission must be honored");
+assert.equal(canUser(customWorker, "settings.view"), true, "reset permission must include access to the settings screen that contains reset");
+assert.deepEqual(normalizeUserPermissions(["backup.restore"]), ["backup.view", "backup.restore"], "restore permission must include backup screen access");
+assert.deepEqual(normalizeUserPermissions(["payroll.pay"]), ["payroll.view", "payroll.pay"], "payroll payment must include payroll screen access");
 assert.equal(canUser({ ...customWorker, is_active: false }, "reports.view"), false, "inactive users must have no permissions");
 
 console.log("user-permissions-harness: OK");
