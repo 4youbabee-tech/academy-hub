@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { flushDb, hashPassword, isLegacyPasswordHash, loadDb, snapshot, subscribe, transact, audit, verifyPassword, type Actor } from "./db";
 import type { DB, User } from "./types";
-import { can } from "./permissions";
+import { canUser } from "./permissions";
 import { runMonthlyGeneration } from "./monthly";
 
 const SESSION_KEY = "institute-session-user";
@@ -110,7 +110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const value: Ctx = useMemo(
-    () => ({ db, user, actor, login, logout, allowed: (p: string) => can(user?.role, p) }),
+    () => ({ db, user, actor, login, logout, allowed: (p: string) => canUser(user, p) }),
     [db, user, actor, login, logout],
   );
 
