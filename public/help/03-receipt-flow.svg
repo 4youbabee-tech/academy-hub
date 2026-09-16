@@ -1,33 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 430" role="img" aria-labelledby="title desc">
-  <title id="title">إنشاء سند قبض</title>
-  <desc id="desc">اختيار فاتورة الطالب وإدخال المبلغ والبيان ثم الحفظ والطباعة</desc>
+  <title id="title">قبض دفعة الطالب حسب الأشهر</title>
+  <desc id="desc">كل شهر يظهر مع مربع اختيار ومبلغ قابل للتعديل في السطر نفسه</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#173f47" flood-opacity=".13"/></filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5 0 10z" fill="#d99d3d"/></marker>
     <style>text{font-family:"Segoe UI",Tahoma,Arial,sans-serif}text:not([fill]){fill:#263c42}.small{font-size:14px;fill:#6b7d80}.head{font-size:17px;font-weight:800}</style>
   </defs>
   <rect width="900" height="430" rx="24" fill="#f7f8f4"/>
-  <text x="450" y="46" text-anchor="middle" font-size="25" font-weight="800">قبض دفعة من الطالب بدون تكرار الحساب</text>
-  <text x="450" y="74" text-anchor="middle" class="small">كل دفعة طالب تُسجل من الإيصالات والفواتير فقط</text>
+  <text x="450" y="46" text-anchor="middle" font-size="25" font-weight="800">قبض دفعة الطالب بدون لخبطة</text>
+  <text x="450" y="74" text-anchor="middle" class="small">✓ اختر الشهر، ويظهر كامل المتبقي تلقائيًا ويمكن تعديل المبلغ في نفس السطر</text>
 
   <g filter="url(#shadow)">
-    <rect x="475" y="102" width="380" height="270" rx="18" fill="white" stroke="#d9e4e1"/>
-    <rect x="475" y="102" width="380" height="52" rx="18" fill="#284f57"/><rect x="475" y="136" width="380" height="18" fill="#284f57"/>
-    <text x="825" y="134" text-anchor="end" font-size="18" font-weight="800" fill="white">الإيصالات والفواتير</text>
-    <rect x="500" y="174" width="330" height="38" rx="9" fill="#f3f6f5" stroke="#d9e4e1"/><text x="812" y="198" text-anchor="end" class="small">ابحث باسم الطالب...</text>
-    <rect x="500" y="229" width="330" height="95" rx="10" fill="#fbfcfa" stroke="#d9e4e1"/>
-    <text x="812" y="255" text-anchor="end" class="head">سامر أحمد — دورة اللغة</text>
-    <text x="812" y="282" text-anchor="end" class="small">المستحق 320</text><text x="680" y="282" text-anchor="end" class="small">المقبوض 120</text><text x="552" y="282" text-anchor="end" font-size="14" font-weight="800" fill="#b77418">المتبقي 200</text>
-    <rect x="684" y="334" width="146" height="28" rx="8" fill="#3e7f85"/><text x="757" y="353" text-anchor="middle" font-size="13" font-weight="700" fill="white">سند قبض جديد</text>
+    <rect x="80" y="105" width="740" height="250" rx="20" fill="white" stroke="#d9e4e1"/>
+    <text x="780" y="138" text-anchor="end" class="head">الفاتورة INV-00001 — الطالب: هادي</text>
+    <text x="780" y="164" text-anchor="end" class="small">إجمالي المستحق 80 USD — المتبقي الكلي 60 USD</text>
 
-    <rect x="45" y="102" width="360" height="270" rx="18" fill="white" stroke="#d9e4e1"/>
-    <text x="375" y="136" text-anchor="end" class="head">سند قبض جديد</text>
-    <text x="375" y="171" text-anchor="end" class="small">الطالب / الفاتورة</text><rect x="70" y="180" width="305" height="31" rx="7" fill="#f3f6f5" stroke="#d9e4e1"/><text x="360" y="201" text-anchor="end" font-size="13">سامر أحمد — المتبقي 200</text>
-    <text x="375" y="238" text-anchor="end" class="small">مبلغ هذه الدفعة</text><rect x="230" y="247" width="145" height="31" rx="7" fill="#fffaf0" stroke="#d99d3d"/><text x="360" y="268" text-anchor="end" font-size="14" font-weight="800">100</text>
-    <text x="205" y="238" text-anchor="end" class="small">طريقة الدفع</text><rect x="70" y="247" width="135" height="31" rx="7" fill="#f3f6f5" stroke="#d9e4e1"/><text x="190" y="268" text-anchor="end" font-size="13">نقدي</text>
-    <text x="375" y="305" text-anchor="end" class="small">البيان: دفعة أولى</text>
-    <rect x="70" y="326" width="305" height="34" rx="8" fill="#48966b"/><text x="222" y="349" text-anchor="middle" font-size="14" font-weight="800" fill="white">حفظ السند وطباعته</text>
+    <rect x="110" y="188" width="680" height="66" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
+    <rect x="742" y="209" width="24" height="24" rx="5" fill="#48966b"/>
+    <path d="M748 221l5 5 9-11" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="710" y="214" text-anchor="end" class="head">متبقي من شهر 8 / 2026</text>
+    <text x="710" y="238" text-anchor="end" class="small">المتبقي 20 USD</text>
+    <rect x="145" y="205" width="150" height="34" rx="8" fill="white" stroke="#d9e4e1"/>
+    <text x="220" y="227" text-anchor="middle" font-size="14" font-weight="800">20</text>
+
+    <rect x="110" y="267" width="680" height="66" rx="14" fill="#f9fbfa" stroke="#d9e4e1"/>
+    <rect x="742" y="288" width="24" height="24" rx="5" fill="white" stroke="#91a3a6" stroke-width="2"/>
+    <text x="710" y="293" text-anchor="end" class="head">شهر 9 / 2026</text>
+    <text x="710" y="317" text-anchor="end" class="small">المتبقي 40 USD</text>
+    <rect x="145" y="284" width="150" height="34" rx="8" fill="white" stroke="#d9e4e1"/>
+    <text x="220" y="306" text-anchor="middle" class="small">المبلغ</text>
   </g>
-  <line x1="458" y1="235" x2="425" y2="235" stroke="#d99d3d" stroke-width="4" marker-end="url(#arrow)"/>
-  <rect x="244" y="391" width="412" height="28" rx="8" fill="#eaf5ee"/><text x="450" y="411" text-anchor="middle" font-size="14" font-weight="700" fill="#397b57">بعد الحفظ: المقبوض 220 · المتبقي 100</text>
+
+  <rect x="175" y="378" width="550" height="32" rx="9" fill="#e9f4f3"/>
+  <text x="450" y="399" text-anchor="middle" font-size="14" font-weight="700">لا يوجد «توزيع بالأقدم أولًا» ولا خانة مبلغ ثانية منفصلة</text>
 </svg>
