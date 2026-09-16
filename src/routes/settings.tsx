@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { DataResetPanel } from "@/components/DataResetPanel";
-import { Badge, Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
+import { Button, Empty, Field, Input, Modal, PageHeader, Select, Table, Td, Textarea } from "@/components/ui-kit";
 import { audit, transact, uid } from "@/lib/db";
 import { money, toMinor } from "@/lib/format";
 
@@ -22,13 +22,13 @@ function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Local state for settings
   const [settings, setSettings] = useState(db?.settings || null);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newDiscountTitle, setNewDiscountTitle] = useState("");
   const [newDiscountAmount, setNewDiscountAmount] = useState("");
+  const [deleteDiscountId, setDeleteDiscountId] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(db?.settings?.logo_data_url || null);
   const [desktopInfo, setDesktopInfo] = useState<{ name: string; version: string; packaged: boolean } | null>(null);
   const [licenseCustomer, setLicenseCustomer] = useState<string | null>(null);
@@ -88,8 +88,8 @@ function SettingsPage() {
     const amount = toMinor(newDiscountAmount);
     if (!title) return setError("عنوان الخصم إلزامي");
     if (amount <= 0) return setError("قيمة الخصم يجب أن تكون أكبر من صفر");
-    if (settings.discount_presets.some((item) => item.active && item.title.trim().toLowerCase() === title.toLowerCase())) {
-      return setError("يوجد خصم فعّال بنفس العنوان");
+    if (settings.discount_presets.some((item) => item.title.trim().toLowerCase() === title.toLowerCase())) {
+      return setError("يوجد خصم بنفس العنوان");
     }
     setSettings({
       ...settings,
@@ -100,14 +100,14 @@ function SettingsPage() {
     setError(null);
   }
 
-  function toggleDiscountPreset(id: string) {
-    if (!settings) return;
+  function deleteDiscountPreset() {
+    if (!settings || !deleteDiscountId) return;
     setSettings({
       ...settings,
-      discount_presets: settings.discount_presets.map((item) =>
-        item.id === id ? { ...item, active: !item.active } : item,
-      ),
+      discount_presets: settings.discount_presets.filter((item) => item.id !== deleteDiscountId),
     });
+    setDeleteDiscountId(null);
+    setError(null);
   }
 
   function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -126,6 +126,9 @@ function SettingsPage() {
   }
 
   if (!settings) return <Empty text="جاري تحميل الإعدادات..." />;
+  const discountToDelete = deleteDiscountId
+    ? settings.discount_presets.find((item) => item.id === deleteDiscountId)
+    : undefined;
 
   return (
     <div>
@@ -139,109 +142,58 @@ function SettingsPage() {
       {success && <div className="mb-4 rounded-lg bg-success/10 p-3 text-sm text-success">{success}</div>}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* معلومات المركز التعليمي */}
         <div className="panel p-5">
           <h2 className="mb-4 text-sm font-bold">🏢 معلومات المركز التعليمي</h2>
           <div className="space-y-3">
             <Field label="اسم المركز التعليمي">
-              <Input
-                value={settings.institute_name}
-                onChange={(e) => setSettings({ ...settings, institute_name: e.target.value })}
-                disabled={!canEdit}
-              />
+              <Input value={settings.institute_name} onChange={(e) => setSettings({ ...settings, institute_name: e.target.value })} disabled={!canEdit} />
             </Field>
             <Field label="اسم المدير">
-              <Input
-                value={settings.director_name}
-                onChange={(e) => setSettings({ ...settings, director_name: e.target.value })}
-                disabled={!canEdit}
-              />
+              <Input value={settings.director_name} onChange={(e) => setSettings({ ...settings, director_name: e.target.value })} disabled={!canEdit} />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="الهاتف">
-                <Input
-                  value={settings.phone}
-                  onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
-                  disabled={!canEdit}
-                />
+                <Input value={settings.phone} onChange={(e) => setSettings({ ...settings, phone: e.target.value })} disabled={!canEdit} />
               </Field>
               <Field label="العملة">
-                <Input
-                  value={settings.currency}
-                  onChange={(e) => setSettings({ ...settings, currency: e.target.value })}
-                  disabled={!canEdit}
-                  placeholder="ر.س / $ / د.إ"
-                />
+                <Input value={settings.currency} onChange={(e) => setSettings({ ...settings, currency: e.target.value })} disabled={!canEdit} placeholder="ر.س / $ / د.إ" />
               </Field>
             </div>
             <Field label="العنوان">
-              <Textarea
-                value={settings.address}
-                onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-                disabled={!canEdit}
-                rows={2}
-              />
+              <Textarea value={settings.address} onChange={(e) => setSettings({ ...settings, address: e.target.value })} disabled={!canEdit} rows={2} />
             </Field>
           </div>
         </div>
 
-        {/* الترقيم */}
         <div className="panel p-5">
           <h2 className="mb-4 text-sm font-bold">🔢 الترقيم التلقائي</h2>
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="بادئة رقم الطالب">
-                <Input
-                  value={settings.student_code_prefix}
-                  onChange={(e) => setSettings({ ...settings, student_code_prefix: e.target.value })}
-                  disabled={!canEdit}
-                />
+                <Input value={settings.student_code_prefix} onChange={(e) => setSettings({ ...settings, student_code_prefix: e.target.value })} disabled={!canEdit} />
               </Field>
               <Field label="التالي للطالب">
-                <Input
-                  type="number"
-                  value={settings.student_code_next}
-                  onChange={(e) => setSettings({ ...settings, student_code_next: Number(e.target.value) || 1 })}
-                  disabled={!canEdit}
-                />
+                <Input type="number" value={settings.student_code_next} onChange={(e) => setSettings({ ...settings, student_code_next: Number(e.target.value) || 1 })} disabled={!canEdit} />
               </Field>
               <Field label="بادئة رقم الإيصال">
-                <Input
-                  value={settings.receipt_prefix}
-                  onChange={(e) => setSettings({ ...settings, receipt_prefix: e.target.value })}
-                  disabled={!canEdit}
-                />
+                <Input value={settings.receipt_prefix} onChange={(e) => setSettings({ ...settings, receipt_prefix: e.target.value })} disabled={!canEdit} />
               </Field>
               <Field label="التالي للإيصال">
-                <Input
-                  type="number"
-                  value={settings.receipt_next}
-                  onChange={(e) => setSettings({ ...settings, receipt_next: Number(e.target.value) || 1 })}
-                  disabled={!canEdit}
-                />
+                <Input type="number" value={settings.receipt_next} onChange={(e) => setSettings({ ...settings, receipt_next: Number(e.target.value) || 1 })} disabled={!canEdit} />
               </Field>
             </div>
           </div>
         </div>
 
-        {/* أنواع المصاريف */}
         <div className="panel p-5">
           <h2 className="mb-4 text-sm font-bold">💰 أنواع المصاريف</h2>
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               {expenseCategories.map((cat, i) => (
-                <span
-                  key={i}
-                  className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm"
-                >
+                <span key={i} className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm">
                   {cat}
                   {canEdit && (
-                    <button
-                      onClick={() => removeCategory(i)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={() => removeCategory(i)} className="text-muted-foreground hover:text-destructive">✕</button>
                   )}
                 </span>
               ))}
@@ -250,21 +202,12 @@ function SettingsPage() {
               <div className="flex gap-2">
                 {showAddCategory ? (
                   <>
-                    <Input
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value)}
-                      placeholder="نوع مصروف جديد..."
-                      className="flex-1"
-                    />
+                    <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="نوع مصروف جديد..." className="flex-1" />
                     <Button onClick={addCategory}>إضافة</Button>
-                    <Button variant="ghost" onClick={() => setShowAddCategory(false)}>
-                      إلغاء
-                    </Button>
+                    <Button variant="ghost" onClick={() => setShowAddCategory(false)}>إلغاء</Button>
                   </>
                 ) : (
-                  <Button variant="secondary" onClick={() => setShowAddCategory(true)}>
-                    + إضافة نوع
-                  </Button>
+                  <Button variant="secondary" onClick={() => setShowAddCategory(true)}>+ إضافة نوع</Button>
                 )}
               </div>
             )}
@@ -276,13 +219,12 @@ function SettingsPage() {
           <h2 className="mb-4 text-sm font-bold">🏷️ الخصومات الجاهزة</h2>
           <div className="space-y-3">
             {settings.discount_presets.length ? (
-              <Table head={["العنوان", "القيمة", "الحالة", ""]}>
+              <Table head={["العنوان", "القيمة", ""]}>
                 {settings.discount_presets.map((item) => (
-                  <tr key={item.id} className={item.active ? "" : "opacity-60"}>
+                  <tr key={item.id}>
                     <Td className="font-semibold">{item.title}</Td>
                     <Td className="tabular-nums">{money(item.amount, settings.currency)}</Td>
-                    <Td><Badge tone={item.active ? "success" : "muted"}>{item.active ? "مفعّل" : "موقوف"}</Badge></Td>
-                    <Td>{canEdit ? <Button variant="ghost" onClick={() => toggleDiscountPreset(item.id)}>{item.active ? "تعطيل" : "تفعيل"}</Button> : null}</Td>
+                    <Td>{canEdit ? <Button variant="danger" onClick={() => setDeleteDiscountId(item.id)}>حذف</Button> : null}</Td>
                   </tr>
                 ))}
               </Table>
@@ -296,12 +238,11 @@ function SettingsPage() {
                 <Button variant="secondary" onClick={addDiscountPreset}>+ إضافة</Button>
               </div>
             ) : null}
-            <p className="text-xs text-muted-foreground">تعطيل الخصم يمنع استخدامه في تسجيلات جديدة، لكنه يبقى محفوظاً حتى لا يتأثر التاريخ المالي للتسجيلات السابقة.</p>
+            <p className="text-xs text-muted-foreground">حذف الخصم يزيله من الاختيارات الجديدة فقط. التسجيلات السابقة تحتفظ بقيمة الخصم وعنوانه المحفوظين وقت التسجيل.</p>
           </div>
         </div>
       </div>
 
-      {/* ✅ قسم الشعار */}
       <div className="mt-6 panel p-5">
         <h2 className="mb-4 text-sm font-bold">🖼️ شعار المركز التعليمي</h2>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
@@ -323,19 +264,13 @@ function SettingsPage() {
         {!logoPreview && <p className="mt-2 text-sm text-muted-foreground">لم يتم رفع شعار بعد.</p>}
       </div>
 
-      {/* ✅ قسم إعدادات الإيصالات */}
       <div className="mt-6 panel p-5">
         <h2 className="mb-4 text-sm font-bold">🧾 إعدادات الإيصالات</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="حجم الورق">
             <Select
               value={settings.receipt_paper_size || "A5"}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_paper_size: e.target.value as "A4" | "A5",
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_paper_size: e.target.value as "A4" | "A5" })}
               disabled={!canEdit}
             >
               <option value="A4">A4</option>
@@ -345,12 +280,7 @@ function SettingsPage() {
           <Field label="نص التذييل">
             <Input
               value={settings.receipt_footer_text || "شكراً لثقتكم بنا"}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_footer_text: e.target.value,
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_footer_text: e.target.value })}
               disabled={!canEdit}
             />
           </Field>
@@ -359,77 +289,47 @@ function SettingsPage() {
               type="checkbox"
               id="showLogo"
               checked={settings.receipt_show_logo !== false}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_show_logo: e.target.checked,
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_show_logo: e.target.checked })}
               disabled={!canEdit}
               className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
             />
-            <label htmlFor="showLogo" className="text-sm font-medium text-foreground">
-              إظهار الشعار في الإيصال
-            </label>
+            <label htmlFor="showLogo" className="text-sm font-medium text-foreground">إظهار الشعار في الإيصال</label>
           </div>
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="showPaymentMethod"
               checked={settings.receipt_show_payment_method !== false}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_show_payment_method: e.target.checked,
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_show_payment_method: e.target.checked })}
               disabled={!canEdit}
               className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
             />
-            <label htmlFor="showPaymentMethod" className="text-sm font-medium text-foreground">
-              إظهار طريقة الدفع
-            </label>
+            <label htmlFor="showPaymentMethod" className="text-sm font-medium text-foreground">إظهار طريقة الدفع</label>
           </div>
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="showGuardian"
               checked={settings.receipt_show_guardian !== false}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_show_guardian: e.target.checked,
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_show_guardian: e.target.checked })}
               disabled={!canEdit}
               className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
             />
-            <label htmlFor="showGuardian" className="text-sm font-medium text-foreground">
-              إظهار اسم ولي الأمر
-            </label>
+            <label htmlFor="showGuardian" className="text-sm font-medium text-foreground">إظهار اسم ولي الأمر</label>
           </div>
           <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="showNotes"
               checked={settings.receipt_show_notes !== false}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  receipt_show_notes: e.target.checked,
-                })
-              }
+              onChange={(e) => setSettings({ ...settings, receipt_show_notes: e.target.checked })}
               disabled={!canEdit}
               className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
             />
-            <label htmlFor="showNotes" className="text-sm font-medium text-foreground">
-              إظهار الملاحظات
-            </label>
+            <label htmlFor="showNotes" className="text-sm font-medium text-foreground">إظهار الملاحظات</label>
           </div>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          هذه الإعدادات تؤثر على طباعة سندات القبض في شاشة الإيصالات والفواتير.
-        </p>
+        <p className="mt-3 text-xs text-muted-foreground">هذه الإعدادات تؤثر على طباعة سندات القبض في شاشة الإيصالات والفواتير.</p>
       </div>
 
       {desktopInfo ? (
@@ -481,6 +381,17 @@ function SettingsPage() {
           <Button onClick={saveSettings}>💾 حفظ الإعدادات</Button>
         </div>
       )}
+
+      <Modal open={!!deleteDiscountId} title="حذف الخصم الجاهز" onClose={() => setDeleteDiscountId(null)}>
+        <div className="space-y-4 text-sm">
+          <p>هل أنت متأكد أنك تريد حذف الخصم <b>{discountToDelete?.title || ""}</b>؟</p>
+          <p className="text-xs leading-6 text-muted-foreground">لن يظهر بعد الحفظ في التسجيلات الجديدة، ولن تتغير الخصومات المسجلة تاريخيًا للطلاب.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setDeleteDiscountId(null)}>تراجع</Button>
+            <Button variant="danger" onClick={deleteDiscountPreset}>نعم، حذف</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
