@@ -4,21 +4,35 @@ import { useApp } from "@/lib/session";
 import { Denied } from "@/components/AppShell";
 import { Badge, Button, Empty, Field, Input, Modal, PageHeader, PaginationControls, Select, Table, Td } from "@/components/ui-kit";
 import { insert, update, remove, hashPassword } from "@/lib/db";
-import { ROLE_LABELS } from "@/lib/permissions";
-import type { User, RoleKey } from "@/lib/types";
+import { canUser, DEFAULT_WORKER_PERMISSIONS, normalizeUserPermissions, PERMISSION_OPTIONS } from "@/lib/permissions";
+import type { User } from "@/lib/types";
 import { usePagination } from "@/hooks/use-pagination";
 
 export const Route = createFileRoute("/users")({
   head: () => ({
     meta: [
       { title: "المستخدمون — نظام إدارة المركز التعليمي" },
-      { name: "description", content: "إدارة المستخدمين والأدوار والصلاحيات." },
+      { name: "description", content: "إدارة المستخدمين وصلاحيات كل عامل بصورة مستقلة." },
     ],
   }),
   component: UsersPage,
 });
 
-const EMPTY = { username: "", full_name: "", password: "", role: "secretary" as RoleKey, is_active: true };
+const EMPTY = {
+  username: "",
+  full_name: "",
+  password: "",
+  is_active: true,
+  permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS),
+};
+
+const PERMISSION_GROUPS = [...new Set(PERMISSION_OPTIONS.map((item) => item.group))];
+
+function effectivePermissions(user: User): string[] {
+  if (user.role === "owner") return PERMISSION_OPTIONS.map((item) => item.key);
+  if (Array.isArray(user.permissions)) return normalizeUserPermissions(user.permissions);
+  return normalizeUserPermissions(PERMISSION_OPTIONS.filter((item) => canUser(user, item.key)).map((item) => item.key));
+}
 
 function UsersPage() {
   const { db, actor, allowed, user: currentUser } = useApp();
@@ -34,7 +48,7 @@ function UsersPage() {
     if (!db) return [];
     const term = q.trim().toLowerCase();
     return db.users
-      .filter((user) => !role || user.role === role)
+      .filter((user) => !role || (role === "worker" ? user.role !== "owner" : user.role === role))
       .filter((user) => status === "active" ? user.is_active : status === "inactive" ? !user.is_active : true)
       .filter((user) => !term || user.username.toLowerCase().includes(term) || user.full_name.toLowerCase().includes(term))
       .slice().sort((a, b) => a.full_name.localeCompare(b.full_name, "ar"));
@@ -44,52 +58,62 @@ function UsersPage() {
   if (!db) return null;
   if (!allowed("users.view")) return <Denied />;
   const currentDb = db;
-  const canCreate = allowed("users.create");
-  const canUpdate = allowed("users.update");
-  const canDelete = allowed("users.delete");
   const isOwner = currentUser?.role === "owner";
+  const canManage = isOwner;
 
   function startAdd() {
     setEditing(null);
-    setForm(EMPTY);
+    setForm({ ...EMPTY, permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS) });
     setError(null);
     setOpen(true);
   }
 
-  function startEdit(u: User) {
-    setEditing(u);
+  function startEdit(user: User) {
+    setEditing(user);
     setForm({
-      username: u.username,
-      full_name: u.full_name,
+      username: user.username,
+      full_name: user.full_name,
       password: "",
-      role: u.role,
-      is_active: u.is_active,
+      is_active: user.is_active,
+      permissions: effectivePermissions(user),
     });
     setError(null);
     setOpen(true);
   }
 
+  function togglePermission(key: string) {
+    setForm((current) => {
+      const next = current.permissions.includes(key)
+        ? current.permissions.filter((item) => item !== key)
+        : [...current.permissions, key];
+      return { ...current, permissions: normalizeUserPermissions(next) };
+    });
+  }
+
   async function save() {
+    if (!canManage) return setError("إدارة المستخدمين والصلاحيات متاحة للمدير الرئيسي فقط");
     if (!form.username.trim()) return setError("اسم المستخدم إلزامي");
     if (!form.full_name.trim()) return setError("الاسم الظاهر إلزامي");
 
     const existing = currentDb.users.find(
-      (u) => u.username.toLowerCase() === form.username.trim().toLowerCase() && u.id !== editing?.id,
+      (user) => user.username.toLowerCase() === form.username.trim().toLowerCase() && user.id !== editing?.id,
     );
     if (existing) return setError("اسم المستخدم موجود مسبقاً");
 
+    const normalizedPermissions = normalizeUserPermissions(form.permissions);
     try {
       if (editing) {
         const patch: Partial<User> = {
           username: form.username.trim(),
           full_name: form.full_name.trim(),
-          role: form.role,
           is_active: form.is_active,
         };
-        if (form.password.trim()) {
-          patch.password_hash = await hashPassword(form.password.trim());
+        if (editing.role !== "owner") {
+          patch.role = "worker";
+          patch.permissions = normalizedPermissions;
         }
-        update("users", editing.id, patch, actor, `تعديل المستخدم ${form.full_name}`);
+        if (form.password.trim()) patch.password_hash = await hashPassword(form.password.trim());
+        update("users", editing.id, patch, actor, `تعديل المستخدم وصلاحياته ${form.full_name}`);
       } else {
         if (!form.password.trim()) return setError("كلمة المرور إلزامية للمستخدم الجديد");
         const password_hash = await hashPassword(form.password.trim());
@@ -99,12 +123,13 @@ function UsersPage() {
             username: form.username.trim(),
             full_name: form.full_name.trim(),
             password_hash,
-            role: form.role,
+            role: "worker",
             is_active: form.is_active,
             employee_id: null,
+            permissions: normalizedPermissions,
           },
           actor,
-          `إضافة المستخدم ${form.full_name}`,
+          `إضافة العامل ${form.full_name}`,
         );
       }
       setOpen(false);
@@ -113,11 +138,12 @@ function UsersPage() {
     }
   }
 
-  async function deleteUser(u: User) {
-    if (u.id === currentUser?.id) return setError("لا يمكن حذف حسابك الحالي");
-    if (!confirm(`هل تريد حذف المستخدم "${u.full_name}"؟`)) return;
+  function deleteUser(user: User) {
+    if (!canManage) return setError("إدارة المستخدمين متاحة للمدير الرئيسي فقط");
+    if (user.id === currentUser?.id) return setError("لا يمكن حذف حسابك الحالي");
+    if (!confirm(`هل تريد حذف المستخدم "${user.full_name}"؟`)) return;
     try {
-      remove("users", u.id, actor, `حذف المستخدم ${u.full_name}`);
+      remove("users", user.id, actor, `حذف المستخدم ${user.full_name}`);
       setError(null);
     } catch (caught) {
       setError((caught as Error).message);
@@ -127,71 +153,69 @@ function UsersPage() {
   return (
     <div>
       <PageHeader
-        title="المستخدمون"
-        subtitle={`${rows.length} من ${currentDb.users.length} مستخدم`}
-        actions={canCreate ? <Button onClick={startAdd}>+ مستخدم جديد</Button> : null}
+        title="المستخدمون والصلاحيات"
+        subtitle="المدير الرئيسي يملك كل الصلاحيات، ولكل عامل صلاحيات مستقلة"
+        actions={canManage ? <Button onClick={startAdd}>+ عامل جديد</Button> : null}
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالاسم أو اسم المستخدم" />
         <Select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="">كل الأدوار</option>
-          {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          <option value="">كل الأنواع</option>
+          <option value="owner">المدير الرئيسي</option>
+          <option value="worker">العاملون</option>
         </Select>
         <Select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">كل الحالات</option><option value="active">نشط</option><option value="inactive">معطّل</option>
         </Select>
       </div>
 
+      {error ? <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-sm font-semibold text-destructive">{error}</div> : null}
+
       {rows.length === 0 ? (
         <Empty text="لا يوجد مستخدمون." />
       ) : (
         <>
-        <Table head={["اسم المستخدم", "الاسم الظاهر", "الدور", "الحالة", ""]}>
-          {pagination.rows.map((u) => (
-            <tr key={u.id} className={u.id === currentUser?.id ? "bg-muted/40" : ""}>
-              <Td className="font-semibold">@{u.username}</Td>
-              <Td>{u.full_name}</Td>
-              <Td>{ROLE_LABELS[u.role]}</Td>
-              <Td>
-                <Badge tone={u.is_active ? "success" : "muted"}>{u.is_active ? "نشط" : "معطّل"}</Badge>
-                {u.id === currentUser?.id && (
-                  <Badge tone="primary" className="mr-2">أنت</Badge>
-                )}
-              </Td>
-              <Td>
-                <div className="flex gap-1">
-                  {canUpdate && (u.role !== "owner" || isOwner) && (
-                    <Button variant="ghost" onClick={() => startEdit(u)}>
-                      تعديل
-                    </Button>
-                  )}
-                  {canDelete && u.id !== currentUser?.id && (u.role !== "owner" || isOwner) && (
-                    <Button variant="ghost" onClick={() => deleteUser(u)}>
-                      حذف
-                    </Button>
-                  )}
-                </div>
-              </Td>
-            </tr>
-          ))}
-        </Table>
-        <PaginationControls
-          page={pagination.page}
-          pageCount={pagination.pageCount}
-          pageSize={pagination.pageSize}
-          total={pagination.total}
-          from={pagination.from}
-          to={pagination.to}
-          onPrevious={pagination.previous}
-          onNext={pagination.next}
-          onPageSizeChange={pagination.setPageSize}
-        />
+          <Table head={["اسم المستخدم", "الاسم الظاهر", "النوع", "الصلاحيات", "الحالة", ""]}>
+            {pagination.rows.map((user) => (
+              <tr key={user.id} className={user.id === currentUser?.id ? "bg-muted/40" : ""}>
+                <Td className="font-semibold">@{user.username}</Td>
+                <Td>{user.full_name}</Td>
+                <Td>{user.role === "owner" ? "المدير الرئيسي" : "عامل"}</Td>
+                <Td className="text-xs">
+                  {user.role === "owner" ? "كل الصلاحيات" : `${effectivePermissions(user).length} صلاحية`}
+                </Td>
+                <Td>
+                  <Badge tone={user.is_active ? "success" : "muted"}>{user.is_active ? "نشط" : "معطّل"}</Badge>
+                  {user.id === currentUser?.id ? <Badge tone="primary" className="mr-2">أنت</Badge> : null}
+                </Td>
+                <Td>
+                  <div className="flex gap-1">
+                    {canManage ? <Button variant="ghost" onClick={() => startEdit(user)}>تعديل</Button> : null}
+                    {canManage && user.id !== currentUser?.id && user.role !== "owner" ? (
+                      <Button variant="ghost" onClick={() => deleteUser(user)}>حذف</Button>
+                    ) : null}
+                  </div>
+                </Td>
+              </tr>
+            ))}
+          </Table>
+          <PaginationControls
+            page={pagination.page}
+            pageCount={pagination.pageCount}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            from={pagination.from}
+            to={pagination.to}
+            onPrevious={pagination.previous}
+            onNext={pagination.next}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </>
       )}
 
-      <Modal open={open} title={editing ? "تعديل مستخدم" : "مستخدم جديد"} onClose={() => setOpen(false)}>
-        <div className="space-y-3">
+      <Modal open={open} title={editing ? "تعديل مستخدم وصلاحياته" : "إضافة عامل"} onClose={() => setOpen(false)} extraWide>
+        <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="اسم المستخدم">
               <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} dir="ltr" />
@@ -200,42 +224,60 @@ function UsersPage() {
               <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
             </Field>
             <Field label={editing ? "كلمة المرور (اتركها فارغة للإبقاء)" : "كلمة المرور"}>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                dir="ltr"
-                required={!editing}
-              />
+              <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} dir="ltr" required={!editing} />
             </Field>
-            <Field label="الدور">
-              <Select
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value as RoleKey })}
-              >
-                {isOwner ? <option value="owner">مالك</option> : null}
-                <option value="director">مدير</option>
-                <option value="accountant">محاسب</option>
-                <option value="secretary">سكرتير</option>
-                <option value="teacher">مدرّس</option>
+            <Field label="الحالة">
+              <Select value={form.is_active ? "1" : "0"} onChange={(e) => setForm({ ...form, is_active: e.target.value === "1" })}>
+                <option value="1">نشط</option>
+                <option value="0">معطّل</option>
               </Select>
             </Field>
           </div>
-          <Field label="نشط">
-            <select
-              value={form.is_active ? "1" : "0"}
-              onChange={(e) => setForm({ ...form, is_active: e.target.value === "1" })}
-              className="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm"
-            >
-              <option value="1">نشط</option>
-              <option value="0">معطّل</option>
-            </select>
-          </Field>
+
+          {editing?.role === "owner" ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <p className="font-bold">المدير الرئيسي</p>
+              <p className="mt-1 text-sm text-muted-foreground">هذا الحساب يملك جميع الصلاحيات دائمًا ولا يمكن حجبها.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border p-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-bold">صلاحيات العامل</h3>
+                  <p className="text-xs text-muted-foreground">أي صلاحية غير معلّمة لن تظهر شاشتها أو أزرارها للعامل. صلاحيات التنفيذ تضيف تلقائيًا صلاحية مشاهدة الشاشة اللازمة.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: normalizeUserPermissions(DEFAULT_WORKER_PERMISSIONS) })}>الافتراضي</Button>
+                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: normalizeUserPermissions(PERMISSION_OPTIONS.map((item) => item.key)) })}>تحديد الكل</Button>
+                  <Button variant="ghost" onClick={() => setForm({ ...form, permissions: [] })}>إلغاء الكل</Button>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {PERMISSION_GROUPS.map((group) => (
+                  <div key={group} className="rounded-lg bg-muted/30 p-3">
+                    <p className="mb-2 text-sm font-bold">{group}</p>
+                    <div className="space-y-2">
+                      {PERMISSION_OPTIONS.filter((item) => item.group === group).map((item) => (
+                        <label key={item.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={form.permissions.includes(item.key)}
+                            onChange={() => togglePermission(item.key)}
+                            className="h-4 w-4 rounded border-input"
+                          />
+                          <span className={item.dangerous ? "font-semibold text-destructive" : ""}>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setOpen(false)}>
-              إلغاء
-            </Button>
+            <Button variant="secondary" onClick={() => setOpen(false)}>إلغاء</Button>
             <Button onClick={save}>حفظ</Button>
           </div>
         </div>

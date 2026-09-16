@@ -1,4 +1,5 @@
 import { audit, flushDb, replaceDb, snapshot } from "./db";
+import { canUser } from "./permissions";
 import type { DB, ID } from "./types";
 
 export const DATA_RESET_CONFIRMATION = "مسح البيانات نهائياً";
@@ -19,9 +20,11 @@ const OPERATIONAL_COLLECTIONS = [
   "incomes",
 ] as const satisfies readonly (keyof DB)[];
 
-export function buildOperationalResetSnapshot(source: DB, ownerUserId: ID): DB {
-  const owner = source.users.find((user) => user.id === ownerUserId && user.is_active && user.role === "owner");
-  if (!owner) throw new Error("مسح البيانات متاح لمالك النظام النشط فقط.");
+export function buildOperationalResetSnapshot(source: DB, userId: ID): DB {
+  const user = source.users.find((item) => item.id === userId && item.is_active);
+  if (!user || !canUser(user, "system.reset")) {
+    throw new Error("لا تملك صلاحية مسح بيانات التشغيل.");
+  }
 
   const next = structuredClone(source);
   for (const collection of OPERATIONAL_COLLECTIONS) {
@@ -38,7 +41,7 @@ export function buildOperationalResetSnapshot(source: DB, ownerUserId: ID): DB {
 
   audit(
     next,
-    { id: owner.id, name: owner.full_name },
+    { id: user.id, name: user.full_name },
     "system",
     null,
     "reset-operational-data",
@@ -48,9 +51,9 @@ export function buildOperationalResetSnapshot(source: DB, ownerUserId: ID): DB {
   return next;
 }
 
-export async function resetOperationalData(ownerUserId: ID): Promise<void> {
+export async function resetOperationalData(userId: ID): Promise<void> {
   const current = snapshot();
   if (!current) throw new Error("قاعدة البيانات غير جاهزة.");
-  replaceDb(buildOperationalResetSnapshot(current, ownerUserId));
+  replaceDb(buildOperationalResetSnapshot(current, userId));
   await flushDb();
 }

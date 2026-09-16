@@ -9,20 +9,30 @@ const db = emptyDb();
 const owner: User = {
   ...baseFields(),
   username: "owner",
-  full_name: "مالك الاختبار",
+  full_name: "المدير الرئيسي للاختبار",
   password_hash: "hash",
   role: "owner",
   is_active: true,
 };
-const accountant: User = {
+const worker: User = {
   ...baseFields(),
-  username: "accountant",
-  full_name: "المحاسب",
+  username: "worker",
+  full_name: "العامل",
   password_hash: "hash",
-  role: "accountant",
+  role: "worker",
   is_active: true,
+  permissions: ["students.view"],
 };
-db.users.push(owner, accountant);
+const trustedWorker: User = {
+  ...baseFields(),
+  username: "trusted.worker",
+  full_name: "عامل بصلاحية المسح",
+  password_hash: "hash",
+  role: "worker",
+  is_active: true,
+  permissions: ["students.view", "system.reset"],
+};
+db.users.push(owner, worker, trustedWorker);
 db.settings.institute_name = "مركز محفوظ";
 db.settings.logo_data_url = "data:image/png;base64,AAAA";
 db.settings.student_code_next = 44;
@@ -59,17 +69,22 @@ const operationalCollections = [
 for (const key of operationalCollections) db[key].push({} as never);
 
 assert.throws(
-  () => buildOperationalResetSnapshot(db, accountant.id),
-  /مالك النظام/,
-  "non-owner must never be allowed to wipe operational data",
+  () => buildOperationalResetSnapshot(db, worker.id),
+  /لا تملك صلاحية/,
+  "worker without reset permission must never wipe operational data",
 );
+
+const delegatedReset = buildOperationalResetSnapshot(db, trustedWorker.id);
+assert.equal(delegatedReset.audit_log[0]?.user_id, trustedWorker.id, "delegated reset must be audited to the executing worker");
+assert.equal(delegatedReset.audit_log[0]?.action, "reset-operational-data");
 
 const reset = buildOperationalResetSnapshot(db, owner.id);
 for (const key of operationalCollections) {
   assert.equal(reset[key].length, 0, `${key} must be cleared`);
 }
-assert.equal(reset.users.length, 2, "users must be preserved");
-assert.equal(reset.users[0]?.id, owner.id, "owner identity must be preserved");
+assert.equal(reset.users.length, 3, "users must be preserved");
+assert.equal(reset.users[0]?.id, owner.id, "main manager identity must be preserved");
+assert.deepEqual(reset.users[1]?.permissions, ["students.view"], "worker permissions must be preserved");
 assert.equal(reset.settings.institute_name, "مركز محفوظ", "institute settings must be preserved");
 assert.equal(reset.settings.logo_data_url, "data:image/png;base64,AAAA", "logo must be preserved");
 assert.deepEqual(reset.expense_categories, ["إيجار", "كهرباء"], "expense categories must be preserved");

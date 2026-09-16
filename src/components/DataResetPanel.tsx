@@ -19,14 +19,14 @@ function downloadBrowserSafetyBackup(payload: string, instituteName: string): vo
 }
 
 export function DataResetPanel() {
-  const { db, user } = useApp();
+  const { db, user, allowed } = useApp();
   const [stage, setStage] = useState<"closed" | "warning" | "typed">("closed");
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  if (!db || !user || user.role !== "owner") return null;
+  if (!db || !user || !allowed("system.reset")) return null;
   const currentDb = db;
   const currentUser = user;
 
@@ -65,7 +65,7 @@ export function DataResetPanel() {
               يستخدم هذا الخيار عند الانتهاء من بيانات التجربة أو عند بدء تشغيل نظيف. سيتم مسح الطلاب والصفوف والتسجيلات والفواتير والسندات والموظفين والرواتب والسلف والمصاريف والمداخيل.
             </p>
             <p className="mt-2 text-sm font-semibold">
-              لن يتم مسح حسابات المستخدمين أو الصلاحيات أو إعدادات المركز أو الشعار أو أنواع المصاريف أو سجل التدقيق أو ترخيص Windows.
+              لن يتم مسح حسابات المستخدمين أو صلاحياتهم أو إعدادات المركز أو الشعار أو أنواع المصاريف أو سجل التدقيق أو ترخيص Windows.
             </p>
             <p className="mt-2 text-xs leading-6 text-muted-foreground">
               قبل المسح ينشئ البرنامج نسخة أمان تلقائيًا. في Windows تُحفظ نسخة محمية محليًا، وفي نسخة الويب يتم تنزيل ملف JSON قبل تنفيذ المسح.

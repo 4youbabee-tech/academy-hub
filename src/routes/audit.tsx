@@ -18,7 +18,7 @@ export const Route = createFileRoute("/audit")({
 });
 
 function AuditPage() {
-  const { db, allowed, user } = useApp();
+  const { db, allowed } = useApp();
   const [q, setQ] = useState("");
   const [entity, setEntity] = useState("");
   const [action, setAction] = useState("");
@@ -52,7 +52,7 @@ function AuditPage() {
   const pagination = usePagination(rows, `${debouncedQ}|${entity}|${action}|${dateFrom}|${dateTo}`);
 
   if (!db) return null;
-  if (!allowed("audit.view") || user?.role !== "owner") return <Denied />;
+  if (!allowed("audit.view")) return <Denied />;
 
   function getActionBadge(action: string): "muted" | "success" | "warning" | "danger" | "primary" {
     const map: Record<string, "muted" | "success" | "warning" | "danger" | "primary"> = {
@@ -74,102 +74,52 @@ function AuditPage() {
       generate: "success",
       "catch-up": "success",
       init: "muted",
+      "reset-operational-data": "danger",
     };
     return map[action] || "muted";
   }
 
-  const actionLabels: Record<string, string> = {
-    create: "إنشاء",
-    update: "تعديل",
-    delete: "حذف",
-    void: "إلغاء",
-    login: "دخول",
-    logout: "خروج",
-    mark: "تسجيل",
-    pay: "دفع",
-    cancel: "إلغاء",
-    archive: "أرشفة",
-    restore: "استرجاع",
-    status: "تغيير حالة",
-    "skip-month": "تخطي شهر",
-    "restore-month": "إعادة شهر",
-    withdraw: "إيقاف تسجيل",
-    generate: "توليد شهري",
-    "catch-up": "استكمال شهري",
-    init: "تهيئة",
-  };
-
   return (
     <div>
-      <PageHeader
-        title="سجل التدقيق"
-        subtitle={`${rows.length} سجل${rows.length !== 1 ? "ات" : ""}`}
-      />
-
-      <div className="panel mb-5 p-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Field label="بحث">
-            <Input
-              placeholder="مستخدم / تفاصيل..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </Field>
-          <Field label="الكيان">
-            <Select value={entity} onChange={(e) => setEntity(e.target.value)}>
-              <option value="">الكل</option>
-              {entities.map((e) => (
-                <option key={e} value={e}>{e}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="الإجراء">
-            <Select value={action} onChange={(e) => setAction(e.target.value)}>
-              <option value="">الكل</option>
-              {actions.map((a) => (
-                <option key={a} value={a}>{actionLabels[a] || a}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="من تاريخ">
-            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          </Field>
-          <Field label="إلى تاريخ">
-            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          </Field>
-        </div>
+      <PageHeader title="سجل التدقيق" subtitle={`${rows.length} عملية`} />
+      <div className="mb-4 grid gap-3 md:grid-cols-5">
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث بالمستخدم أو التفاصيل" />
+        <Select value={entity} onChange={(e) => setEntity(e.target.value)}>
+          <option value="">كل الأقسام</option>
+          {entities.map((value) => <option key={value} value={value}>{value}</option>)}
+        </Select>
+        <Select value={action} onChange={(e) => setAction(e.target.value)}>
+          <option value="">كل العمليات</option>
+          {actions.map((value) => <option key={value} value={value}>{value}</option>)}
+        </Select>
+        <Field label="من"><Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /></Field>
+        <Field label="إلى"><Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /></Field>
       </div>
 
-      {rows.length === 0 ? (
-        <Empty text="لا توجد سجلات مطابقة." />
-      ) : (
+      {rows.length === 0 ? <Empty text="لا توجد عمليات مطابقة." /> : (
         <>
-        <Table head={["التاريخ", "المستخدم", "الكيان", "الإجراء", "التفاصيل"]}>
-          {pagination.rows.map((a) => (
-            <tr key={a.id}>
-              <Td className="whitespace-nowrap text-xs">{dateStr(a.at)}</Td>
-              <Td className="font-semibold">{a.user_name || "النظام"}</Td>
-              <Td>{a.entity}</Td>
-              <Td>
-                <Badge tone={getActionBadge(a.action)}>
-                  {actionLabels[a.action] || a.action}
-                </Badge>
-              </Td>
-              <Td className="text-sm text-muted-foreground">{a.detail}</Td>
-            </tr>
-          ))}
-        </Table>
-        <PaginationControls
-          page={pagination.page}
-          pageCount={pagination.pageCount}
-          pageSize={pagination.pageSize}
-          total={pagination.total}
-          from={pagination.from}
-          to={pagination.to}
-          onPrevious={pagination.previous}
-          onNext={pagination.next}
-          onPageSizeChange={pagination.setPageSize}
-        />
+          <Table head={["الوقت", "المستخدم", "القسم", "العملية", "التفاصيل"]}>
+            {pagination.rows.map((row) => (
+              <tr key={row.id}>
+                <Td className="whitespace-nowrap text-xs">{dateStr(row.at)}</Td>
+                <Td className="font-semibold">{row.user_name || "النظام"}</Td>
+                <Td>{row.entity}</Td>
+                <Td><Badge tone={getActionBadge(row.action)}>{row.action}</Badge></Td>
+                <Td className="max-w-lg text-sm">{row.detail}</Td>
+              </tr>
+            ))}
+          </Table>
+          <PaginationControls
+            page={pagination.page}
+            pageCount={pagination.pageCount}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            from={pagination.from}
+            to={pagination.to}
+            onPrevious={pagination.previous}
+            onNext={pagination.next}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </>
       )}
     </div>
