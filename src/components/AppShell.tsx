@@ -5,7 +5,7 @@ import { Badge, Button, Input, Modal, Panel, Table, Td } from "@/components/ui-k
 import { FirstRunOwnerSetup } from "@/components/FirstRunOwnerSetup";
 import { HelpGuide } from "@/components/HelpGuide";
 import { StudentCardModal } from "@/components/StudentCardModal";
-import { ROLE_LABELS, can } from "@/lib/permissions";
+import { ROLE_LABELS } from "@/lib/permissions";
 import { studentMonthlyLedger } from "@/lib/finance";
 import { localMonthKey, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [studentCardId, setStudentCardId] = useState<string | null>(null);
   const arrears = useMemo(() => {
-    if (!db || !can(user?.role, "finance.view")) return [];
+    if (!db || !allowed("finance.view")) return [];
     const currentMonth = localMonthKey();
     return db.students.flatMap((student) => {
       const overdue = studentMonthlyLedger(db, student.id).filter((row) => row.period < currentMonth && row.due > 0);
@@ -95,7 +95,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       const total = overdue.reduce((sum, row) => sum + row.due, 0);
       return [{ student, total, overdue }];
     }).sort((a, b) => b.total - a.total || a.student.full_name.localeCompare(b.student.full_name, "ar"));
-  }, [db, user?.role]);
+  }, [db, allowed]);
 
   if (!db) return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">جارٍ تحميل قاعدة البيانات المحلية…</div>;
   if (db.users.length === 0) return <FirstRunOwnerSetup />;
@@ -112,7 +112,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <nav className="space-y-4">
           {NAV.map((group) => {
-            const items = group.items.filter((item) => allowed(item.perm) && (item.to !== "/audit" || user.role === "owner"));
+            const items = group.items.filter((item) => allowed(item.perm));
             if (!items.length) return null;
             return <div key={group.group} className={cn("rounded-xl border p-1.5", group.theme.panel)}>
               <p className={cn("px-2 pb-1 pt-1 text-[11px] font-bold uppercase", group.theme.title)}>{group.group}</p>
@@ -127,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-card/90 px-4 py-3 backdrop-blur no-print">
           <button className="rounded-lg px-2 py-1 lg:hidden" onClick={() => setOpen((value) => !value)}>☰</button>
           <div className="flex-1" />
-          {can(user.role, "finance.view") ? <Button variant="ghost" onClick={() => setNotificationsOpen(true)} className="relative">🔔{arrears.length ? <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">{arrears.length}</span> : null}</Button> : null}
+          {allowed("finance.view") ? <Button variant="ghost" onClick={() => setNotificationsOpen(true)} className="relative">🔔{arrears.length ? <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">{arrears.length}</span> : null}</Button> : null}
           <div className="text-left"><p className="text-sm font-semibold">{user.full_name}</p><p className="text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</p></div>
           <Button variant="ghost" onClick={logout}>خروج</Button>
         </header>
